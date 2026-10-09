@@ -1,0 +1,42 @@
+{
+  "name": "wasl",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "start": "node server/index.ts",
+    "db:reset": "node server/reset.ts",
+    "typecheck": "tsc -b",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "verify:repo": "node scripts/verify-repo-safety.mjs",
+    "mock-ai": "node scripts/mock-ai-server.ts",
+    "e2e": "node scripts/e2e.ts"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^5.7.284",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "oxlint": "^1.81.0",
+    "playwright": "^1.63.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~6.0.2",
+    "vite": "^6.4.3",
+    "vitest": "^5.0.3"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "description": "WASL | وصل — Where Ability Meets Opportunity. Direct, evidence-based connections between students/graduates and companies."
+}

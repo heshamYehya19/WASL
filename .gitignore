@@ -1,0 +1,51 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependencies and build output
+node_modules
+dist
+dist-ssr
+*.local
+coverage
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Live SQLite runtime data. The schema, migrations and seed are tracked; the database itself
+# is created and seeded automatically on first run (see server/db.ts, `npm run db:reset`).
+data/
+*.db
+*.db-wal
+*.db-shm
+*.pre-wasl.bak
+
+# Local secrets (GROQ_API_KEY / GEMINI_API_KEY / GITHUB_TOKEN ...) — never committed.
+.env
+.env.*
+!.env.example
+
+# Keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local assistant settings, Playwright output and review screenshots
+.claude/
+.playwright-cli/
+playwright-report/
+test-results/
+review-*.png

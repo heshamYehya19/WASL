@@ -1,0 +1,343 @@
+@import "tailwindcss";
+
+/* Dark mode is opt-in via a `.dark` class on <html> (toggled by ThemeProvider),
+   not just the OS media query — this lets the sun/moon control actually work. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-arabic: "Noto Kufi Arabic", "Segoe UI", sans-serif;
+
+  /* Ink / neutral scale — redefined under .dark below */
+  --color-ink-950: #0a1620;
+  --color-ink-900: #0e1f2b;
+  --color-ink-800: #142c3b;
+  --color-ink-700: #1c3a4d;
+  --color-ink-600: #2b4f64;
+  --color-ink-500: #47697d;
+  --color-ink-400: #6f8fa1;
+  --color-ink-300: #9db4c1;
+  --color-ink-200: #c9d8df;
+  --color-ink-100: #e6eef1;
+  --color-ink-50: #f4f8f9;
+
+  /* Card / header surfaces — redefined under .dark. Deliberately NOT "white",
+     so brand-dark panels (below) can keep using real white text on top of them
+     without that getting swept up in the surface inversion. */
+  --color-surface: #ffffff;
+
+  /* Fixed-dark brand surface (primary buttons, hero, sidebar active state) —
+     intentionally the SAME in both themes, never inverted. */
+  --color-night: #0a1620;
+
+  /* Brand teal (وصل / connection) — redefined under .dark below */
+  --color-teal-700: #0f766e;
+  --color-teal-600: #0d9488;
+  --color-teal-500: #14b8a6;
+  --color-teal-400: #2dd4bf;
+  --color-teal-300: #5eead4;
+  --color-teal-100: #ccfbf1;
+
+  /* Amber accent (pending / human review) — redefined under .dark below */
+  --color-amber-600: #b45309;
+  --color-amber-500: #d97706;
+  --color-amber-400: #f2c879;
+  --color-amber-100: #fef3d9;
+
+  /* Status — redefined under .dark below */
+  --color-verified-600: #15803d;
+  --color-verified-500: #16a34a;
+  --color-verified-100: #dcfce7;
+  --color-danger-600: #b91c1c;
+  --color-danger-100: #fee2e2;
+}
+
+/* Dark theme: redeclares the same CSS variables with inverted lightness, so
+   every utility class built on them (bg-ink-50, text-ink-900, bg-teal-100...)
+   adapts automatically with no per-component dark: classes needed. Brand-dark
+   surfaces (--color-night) and literal white-on-dark accents are deliberately
+   left out — they're already dark/light by design in both themes. */
+:root.dark {
+  /* Deliberately darker than --color-night so night-colored buttons/badges
+     (fixed-dark brand surfaces) still stand out against the page background
+     instead of disappearing into it. */
+  --color-ink-50: #050a11;
+  --color-ink-100: #141f2c;
+  --color-ink-200: #22303f;
+  --color-ink-300: #56708a;
+  --color-ink-400: #8099aa;
+  --color-ink-500: #9cb1be;
+  --color-ink-600: #b9cad3;
+  --color-ink-700: #d3dee3;
+  --color-ink-800: #e6edf0;
+  --color-ink-900: #f3f6f7;
+  --color-ink-950: #ffffff;
+
+  --color-surface: #101c29;
+
+  --color-teal-50: #0c2b28;
+  --color-teal-100: #103b35;
+  --color-teal-700: #5eead4;
+  --color-teal-600: #2dd4bf;
+
+  --color-amber-100: #3a2a10;
+  --color-amber-600: #f2c879;
+
+  --color-verified-100: #0f2e1c;
+  --color-verified-600: #4ade80;
+
+  --color-danger-100: #3a1414;
+  --color-danger-600: #f87171;
+
+  --color-sky-100: #0c2436;
+  --color-sky-700: #7dd3fc;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Native form controls (select popups, scrollbars, date pickers) follow
+   color-scheme, not our CSS variables — so tell the browser which theme we're in. */
+:root {
+  color-scheme: light;
+}
+:root.dark {
+  color-scheme: dark;
+}
+
+/* Every <select> and its option list picks up the themed surface. In @layer base
+   so per-component bg-* utilities still win. */
+@layer base {
+  select {
+    background-color: var(--color-surface);
+    color: var(--color-ink-900);
+  }
+  select option,
+  select optgroup {
+    background-color: var(--color-surface);
+    color: var(--color-ink-900);
+  }
+  input,
+  textarea {
+    color: inherit;
+  }
+}
+
+body {
+  background-color: var(--color-ink-50);
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+::selection {
+  background: var(--color-teal-300);
+  color: var(--color-ink-950);
+}
+
+:root.dark ::selection {
+  background: var(--color-teal-400);
+  color: var(--color-night);
+}
+
+.font-arabic {
+  font-family: var(--font-arabic);
+}
+
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(20, 184, 166, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 184, 166, 0.06) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+.flow-line {
+  stroke-dasharray: 4 6;
+  animation: dash-flow 1.4s linear infinite;
+}
+
+/* Wordmark hover: the connector traces itself in, nodes light up, and the
+   Arabic mark sharpens from a faint "draft" into solid "ink" — a small nod to
+   what وصل (connection) actually means. */
+.wordmark-connector {
+  stroke-dasharray: 19;
+  stroke-dashoffset: 19;
+  transition: stroke-dashoffset 0.5s cubic-bezier(0.65, 0, 0.35, 1);
+}
+.group:hover .wordmark-connector {
+  stroke-dashoffset: 0;
+}
+
+.wordmark-node {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.35s ease-out;
+  transition-delay: 0.15s;
+}
+.wordmark-node-delay {
+  transition-delay: 0.22s;
+}
+.group:hover .wordmark-node {
+  transform: scale(1.2);
+  filter: drop-shadow(0 0 3px rgba(45, 212, 191, 0.85));
+}
+
+.wordmark-spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0.55;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s, opacity 0.3s ease-out 0.3s;
+}
+.group:hover .wordmark-spark {
+  transform: scale(1.35);
+  opacity: 1;
+}
+
+.wordmark-ink {
+  opacity: 0.7;
+  transition: opacity 0.4s ease-out, letter-spacing 0.4s ease-out;
+}
+.group:hover .wordmark-ink {
+  opacity: 1;
+  letter-spacing: 0.015em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wordmark-connector,
+  .wordmark-node,
+  .wordmark-spark,
+  .wordmark-ink {
+    transition: none;
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.45s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------- polish */
+
+/* Popovers (account menu, notifications) grow out of their trigger. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-pop-in {
+  transform-origin: top right;
+  animation: pop-in 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+/* Each in-app page fades up as you navigate to it. */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-page-enter {
+  animation: page-enter 0.35s ease-out both;
+}
+
+/* Bell rings briefly when there's something unread. */
+@keyframes bell-ring {
+  0%, 60%, 100% { transform: rotate(0); }
+  10%, 30% { transform: rotate(14deg); }
+  20%, 40% { transform: rotate(-12deg); }
+  50% { transform: rotate(6deg); }
+}
+.animate-bell {
+  transform-origin: 50% 15%;
+  animation: bell-ring 2.4s ease-in-out 0.6s 2;
+}
+
+/* Toasts slide up from the bottom edge. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-toast-in {
+  animation: toast-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+/* Gentle float for empty-state illustrations. */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop-in,
+  .animate-page-enter,
+  .animate-bell,
+  .animate-toast-in,
+  .animate-float {
+    animation: none;
+  }
+}
+
+/* Slim, theme-aware scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-200) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-ink-200);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-teal-400);
+}
+
+/* One consistent keyboard focus ring across the site. */
+:where(a, button, select, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-teal-400);
+  outline-offset: 2px;
+}

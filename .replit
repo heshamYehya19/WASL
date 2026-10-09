@@ -1,0 +1,17 @@
+# Replit configuration for WASL — see "Deploying on Replit" in README.md.
+# WASL needs Node.js 22.18+: check `node --version` in the Shell after importing.
+modules = ["nodejs-22"]
+
+# The Run button builds the app and serves it with the API, like the deployment does.
+run = "npm run build && npm start"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+[deployment]
+# One always-on instance: WASL keeps its data in a single SQLite file, so autoscaled
+# copies would each have their own database.
+deploymentTarget = "vm"
+build = ["sh", "-c", "npm ci && npm run build"]
+run = ["sh", "-c", "npm start"]
