@@ -3,15 +3,15 @@
 // labelled offline scaffold is used. If a provider is configured but fails, this throws — it never quietly swaps in the
 // scaffold and calls it AI.
 
-import { finalizeSpec, specField, SpecProblem } from "../domain/spec.ts"
+import { finalizeSpec, MAX_PHASES, MIN_PHASES, specField, SpecProblem } from "../domain/spec.ts"
 import type { ChallengeSpec, Difficulty } from "../domain/spec.ts"
 import { output } from "./schema.ts"
 import { AiError, aiConfigured, completeJson } from "./provider.ts"
 import { offlineTemplate } from "./offline-template.ts"
 import { UNTRUSTED_RULES, untrusted } from "./safety.ts"
 
-export const CHALLENGE_PROMPT_VERSION = "challenge-gen.v1"
-export const PRACTICE_PROMPT_VERSION = "practice-gen.v1"
+export const CHALLENGE_PROMPT_VERSION = "challenge-gen.v2"
+export const PRACTICE_PROMPT_VERSION = "practice-gen.v2"
 
 export interface Generated {
   spec: ChallengeSpec
@@ -37,7 +37,7 @@ export interface PracticeRequest {
   timeHours: number
 }
 
-const SYSTEM_COMMON = `You design practical, assessable challenges for WASL, a platform where students and graduates demonstrate real ability. Each challenge is split into 2–6 ordered phases. A phase is something one person can finish and submit as code, a short written piece, or both; it is then reviewed by software and discussed with the candidate in an interview, so make the work something a person can explain.
+const SYSTEM_COMMON = `You design practical, assessable challenges for WASL, a platform where students and graduates demonstrate real ability. Each challenge is split into ${MIN_PHASES}–${MAX_PHASES} ordered phases — never fewer than ${MIN_PHASES} and never more than ${MAX_PHASES}; a challenge with any other number is rejected. Every phase must be a substantive piece of work in its own right: do not pad the count with trivial phases, and do not merge distinct steps to shorten it. A phase is something one person can finish and submit as code, a short written piece, or both; it is then reviewed by software and discussed with the candidate in an interview, so make the work something a person can explain.
 
 Rules for the design:
 - Phases build on each other. Use "dependsOn" to name EARLIER phase keys only (p1, p2, …); the first phase depends on nothing. A phase may depend on several earlier phases or on none.
@@ -55,11 +55,11 @@ Return only the JSON object.`
 
 export const COMPANY_SYSTEM = `${SYSTEM_COMMON}
 
-This challenge is for a company to put in front of candidates. Use 3–5 phases. Stay within the company's brief: do not widen its scope, and make the deliverables of the final phase match what the company said it expects.`
+This challenge is for a company to put in front of candidates. Use ${MIN_PHASES}–${MAX_PHASES} phases. Stay within the company's brief: do not widen its scope, and make the deliverables of the final phase match what the company said it expects.`
 
 export const PRACTICE_SYSTEM = `${SYSTEM_COMMON}
 
-This is a private practice challenge for one student to improve their skills — nobody else sees it. Use 2–4 phases. If a language is stated, use it for all code; if a description is given, follow it; otherwise pick a realistic, small scenario that exercises the chosen skills at the stated difficulty.`
+This is a private practice challenge for one student to improve their skills — nobody else sees it. Use ${MIN_PHASES}–4 phases, keeping each one small. If a language is stated, use it for all code; if a description is given, follow it; otherwise pick a realistic, small scenario that exercises the chosen skills at the stated difficulty.`
 
 function companyUser(brief: CompanyBrief): string {
   return [

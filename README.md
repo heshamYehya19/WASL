@@ -27,7 +27,9 @@ If the AI is unavailable or its output can't be validated, the phase becomes **a
 
 ### Phases
 
-A phase opens when the phases it depends on have been *assessed* (passed **or** not yet passed), so a setback never blocks later phases. The whole solution can be submitted as complete only when **every** phase has passed — enforced on the server (`server/domain/phases.ts`). Every attempt is kept.
+Phases are strictly sequential: phase N opens only when **every** earlier phase has a recorded **pass**. Starting, submitting, finishing an interview, a failed result, an unavailable assessment or a pending retry never opens the next phase. The server enforces this on every candidate action — start, submit, interview answer and retry (`server/domain/phases.ts`, `server/services/pipeline.ts`). A phase whose earlier phase has not passed (work begun under the previous rule) is frozen, not reset: its work and results are kept, and it continues once the earlier phases pass. A phase's "builds on" (`dependsOn`) describes the work; it does not decide when the phase opens. The whole solution can be submitted as complete only when **every** phase has passed. Every attempt is kept.
+
+> Changed deliberately: a failed phase used to count as "finished" and opened the phases after it. It no longer does.
 
 ## Quick start
 

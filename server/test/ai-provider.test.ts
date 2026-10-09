@@ -1,7 +1,7 @@
 // helpers.ts must load first: it points WASL_DB_PATH at a throwaway database before db.ts reads it.
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { getDb, llmDeps, resetDatabase } from "./helpers.ts"
-import { AiError, checkProviderHealth, completeJson, configuredProviders, describeAiError, redact } from "../ai/provider.ts"
+import { AiError, checkProviderHealth, completeJson, configuredProviders, describeAiError, MAX_RATE_LIMIT_WAIT_MS, redact, retryAfterMs } from "../ai/provider.ts"
 import { arr, bool, int, num, obj, oneOf, output, SchemaError, str, toGeminiSchema } from "../ai/schema.ts"
 
 // The provider layer, with the network replaced. These tests pin down what is sent to a provider, what comes back, and what
@@ -131,6 +131,28 @@ describe("what comes back", () => {
     expect((await ask().catch((e) => e)).kind).toBe("refused")
   })
 
+  it("treats Groq's 400 'Failed to validate JSON' (how its strict mode reports a cut-off answer) as an invalid answer, not an outage", async () => {
+    // Observed live: with strict json_schema, an answer cut off by the token limit comes back as HTTP 400, never finish_reason "length".
+    const invalid = (message: string, code?: string) => () => Response.json({ error: { message, type: "invalid_request_error", ...(code ? { code } : {}) } }, { status: 400 })
+    process.env.GEMINI_API_KEY = "AIzaSyUnitTestKey0123456789abcdefghijk"
+    script = [invalid("Failed to validate JSON. Please adjust your prompt. See 'failed_generation' for more details.", "json_validate_failed"), invalid("Generated JSON does not match the expected schema. Please adjust your prompt."), () => geminiReply(GOOD)]
+    const done = await ask()
+    expect(done).toMatchObject({ provider: "gemini", attempts: 3 }) // retried once on Groq, then the backup answered
+    expect(calls()[0]).toMatchObject({ ok: 1, provider: "gemini" })
+
+    delete process.env.GEMINI_API_KEY
+    script = [invalid("Failed to validate JSON. Please adjust your prompt."), invalid("Failed to validate JSON. Please adjust your prompt.")]
+    const err = await ask().catch((e) => e)
+    expect(err.kind).toBe("bad_json")
+    expect(describeAiError(err)).toMatch(/couldn't be validated/)
+    expect(describeAiError(err)).not.toMatch(/didn't respond in time/)
+    expect(calls()[1]).toMatchObject({ ok: 0, error_kind: "bad_json", attempts: 2 })
+
+    // Any other 400 is still an HTTP error.
+    script = [() => Response.json({ error: { message: "model not found" } }, { status: 400 }), () => Response.json({ error: { message: "model not found" } }, { status: 400 })]
+    expect((await ask().catch((e) => e)).kind).toBe("http")
+  })
+
   it("truncates over-long text and extra list items instead of failing, but never accepts an empty required field", () => {
     expect(ANSWER.field.parse({ ...GOOD, note: "x".repeat(50), tags: ["a", "b", "c"] }, "")).toMatchObject({ note: "x".repeat(20), tags: ["a", "b"] })
     expect(() => ANSWER.field.parse({ ...GOOD, note: "   " }, "")).toThrow(SchemaError)
@@ -210,6 +232,62 @@ describe("when a provider fails", () => {
     expect(err.message).not.toContain("gsk_unit_test_key")
     expect(err.message).not.toContain("org_abc123XYZ")
     expect(redact("key gsk_unit_test_key_0123456789abcdef and AIzaSyUnitTestKey0123456789abcdefghijk")).not.toMatch(/gsk_unit|AIzaSy/)
+  })
+
+  it("reads a provider's retry guidance from the header, Gemini's RetryInfo, or Groq's message — and ignores nonsense", () => {
+    const r = (headers: Record<string, string> = {}) => new Response("{}", { status: 429, headers })
+    expect(retryAfterMs(r({ "retry-after": "7" }), null)).toBe(7000)
+    expect(retryAfterMs(r({ "retry-after": "2.5" }), null)).toBe(2500)
+    const at = retryAfterMs(r({ "retry-after": new Date(Date.now() + 20_000).toUTCString() }), null)!
+    expect(at).toBeGreaterThan(15_000)
+    expect(at).toBeLessThanOrEqual(20_000)
+    expect(retryAfterMs(r(), { error: { details: [{}, { retryDelay: "6s" }] } })).toBe(6000)
+    expect(retryAfterMs(r(), { error: { message: "Rate limit reached … Please try again in 6.0075s. Need more tokens?" } })).toBe(6007.5)
+    expect(retryAfterMs(r(), { error: { message: "Please try again in 1m2.5s." } })).toBe(62_500)
+    for (const bad of ["soon", "-3", "0"]) expect(retryAfterMs(r({ "retry-after": bad }), null), bad).toBeUndefined()
+    expect(retryAfterMs(r(), { error: { message: "rate limited" } })).toBeUndefined()
+    expect(retryAfterMs(r({ "retry-after": "999999" }), null)).toBe(3_600_000) // capped
+  })
+
+  it("with BOTH providers rate-limited, waits the shortest short window once and retries that provider once", async () => {
+    process.env.GEMINI_API_KEY = "AIzaSyUnitTestKey0123456789abcdefghijk"
+    const limited = (headers: Record<string, string>) => () => new Response(JSON.stringify({ error: { message: "rate limit" } }), { status: 429, headers })
+    script = [limited({ "retry-after": "6" }), limited({ "retry-after": "3" }), () => geminiReply(GOOD)]
+    const done = await ask()
+    expect(done.provider).toBe("gemini")
+    expect(sleeps).toEqual([3000])
+    expect(sent.map((s) => (s.url.includes("groq") ? "groq" : "gemini"))).toEqual(["groq", "gemini", "gemini"])
+    expect(calls()[0]).toMatchObject({ ok: 1, provider: "gemini", attempts: 3 })
+  })
+
+  it("never waits more than once, and never for long: a second limit, or a long window, is reported with the wait", async () => {
+    script = [() => new Response("{}", { status: 429, headers: { "retry-after": "2" } }), () => new Response("{}", { status: 429, headers: { "retry-after": "2" } })]
+    const err = await ask().catch((e) => e)
+    expect(err.kind).toBe("rate_limit")
+    expect(sleeps).toEqual([2000]) // one bounded wait, then give up
+    expect(sent).toHaveLength(2)
+
+    sleeps = []
+    sent = []
+    process.env.GEMINI_API_KEY = "AIzaSyUnitTestKey0123456789abcdefghijk"
+    script = [() => new Response("{}", { status: 429, headers: { "retry-after": "45" } }), () => Response.json({ error: { message: "quota", details: [{ retryDelay: "30s" }] } }, { status: 429 })]
+    const long = await ask().catch((e) => e)
+    expect(sleeps).toEqual([]) // nothing synchronous over MAX_RATE_LIMIT_WAIT_MS
+    expect(MAX_RATE_LIMIT_WAIT_MS).toBe(8000)
+    expect(long.kind).toBe("rate_limit")
+    expect(describeAiError(long)).toMatch(/too many requests.*Try again in about 30 seconds/)
+  })
+
+  it("names each kind of failure differently, so a rate limit is not reported as a timeout or an outage", () => {
+    const msg = (kind: AiError["kind"], retry?: number) => describeAiError(new AiError(kind, "x", retry))
+    expect(msg("rate_limit", 12_400)).toMatch(/too many requests.*about 13 seconds/)
+    expect(msg("rate_limit")).toMatch(/too many requests.*in a minute/)
+    expect(msg("timeout")).toMatch(/took too long/)
+    expect(msg("http")).toMatch(/couldn't be reached or returned an error/)
+    expect(msg("network")).toMatch(/couldn't be reached or returned an error/)
+    expect(msg("bad_json")).toMatch(/couldn't be validated/)
+    expect(msg("auth")).toMatch(/configuration problem/)
+    expect(new Set(["rate_limit", "timeout", "http", "bad_json", "auth"].map((k) => msg(k as AiError["kind"]))).size).toBe(5)
   })
 
   it("describes each failure honestly — as 'nothing was assessed', never as a result", () => {

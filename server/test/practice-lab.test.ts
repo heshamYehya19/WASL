@@ -1,5 +1,5 @@
 // helpers.ts must load first: it points WASL_DB_PATH at a throwaway database before db.ts reads it.
-import { afterAll, beforeEach, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest"
 import { fakeAi, finishInterview, getDb, LAYLA, NAHLA, noAi, passPhase, resetDatabase, SARA, startServer, submit, useFakeAi } from "./helpers.ts"
 
 const server = await startServer()
@@ -10,6 +10,8 @@ beforeEach(() => {
   resetDatabase()
   useFakeAi()
 })
+// fakeAi.reset() does not undo an instance override of respond; restore the prototype's after every test, pass or fail.
+afterEach(() => void delete (fakeAi as { respond?: unknown }).respond)
 
 const REQUEST = { skills: ["python", "sql"], difficulty: "intermediate", description: "Something to do with inventory.", language: "Python" }
 const start = (body: Record<string, unknown> = REQUEST, actor = SARA) => call("POST", "/practice", actor, body)
@@ -24,7 +26,8 @@ describe("creating a practice challenge", () => {
     expect(run.shareScope).toBe("private")
     expect(run.challenge.skills).toEqual(expect.arrayContaining(["Python", "SQL"]))
     expect(run.challenge.difficulty).toBe("intermediate")
-    expect(run.phases.length).toBeGreaterThanOrEqual(2)
+    expect(run.phases.length).toBeGreaterThanOrEqual(3)
+    expect(run.phases.length).toBeLessThanOrEqual(5)
     expect(run.phases[0].available).toBe(true)
     expect(run.phases[1].available).toBe(false)
     const prompt = fakeAi.callsFor("challenge").pop()!.user
@@ -65,6 +68,24 @@ describe("creating a practice challenge", () => {
     expect(templ.status).toBe(200)
     const run = (await call("GET", `/work/${String(templ.json.runId)}`, SARA)).json.run as { challenge: { origin: string } }
     expect(run.challenge.origin).toMatch(/not AI-generated/)
+  })
+
+  it("never creates a practice run from a design with fewer than 3 phases", async () => {
+    const orig = fakeAi.respond.bind(fakeAi)
+    fakeAi.respond = (body) => {
+      const out = orig(body)
+      if ((body as { response_format?: { json_schema?: { name?: string } } }).response_format?.json_schema?.name !== "challenge") return out
+      const content = JSON.parse((out.body as { choices: { message: { content: string } }[] }).choices[0].message.content)
+      content.phases = content.phases.slice(0, 2)
+      return { status: 200, body: { choices: [{ message: { content: JSON.stringify(content) }, finish_reason: "stop" }] } }
+    }
+    const res = await start()
+    expect(res.status).toBe(503)
+    expect(fakeAi.callsFor("challenge")).toHaveLength(2) // one retry, told why
+    expect(fakeAi.callsFor("challenge")[0].system).toMatch(/Use 3–4 phases/)
+    expect(fakeAi.callsFor("challenge")[1].user).toContain("A challenge needs 3 to 5 phases; this one has 2.")
+    expect(rows("SELECT id FROM practice_challenges WHERE candidate_id = 'cand-sara'")).toEqual([])
+    expect(rows("SELECT id FROM runs WHERE candidate_id = 'cand-sara' AND kind = 'practice'")).toEqual([])
   })
 
   it("works without any provider by labelling the scaffold, and says that review and interview then need one", async () => {

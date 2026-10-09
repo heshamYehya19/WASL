@@ -269,8 +269,8 @@ async function main() {
       workUrl = page.url()
       await page.getByRole("heading", { name: "Ticket routing challenge" }).waitFor()
     })
-    await step("later phases are locked until earlier ones are assessed", async () => {
-      await page.getByText(/Opens once you've finished/).first().waitFor()
+    await step("later phases are locked until every earlier one has passed", async () => {
+      await page.getByText(/Opens once you pass/).first().waitFor()
       must((await page.getByRole("link", { name: "Start" }).count()) === 1, "only the first phase can be started")
     })
     await step("submit phase 1 and be interviewed before any decision", async () => {
@@ -339,6 +339,11 @@ async function main() {
       await completeInterview(page)
       await page.getByText("Not passed yet").first().waitFor()
       must((await page.getByText(/\bfailed\b/i).count()) === 0, "the word 'failed' should not be used about the person")
+      // A phase that has not passed keeps the next one locked (strict sequential progression).
+      await page.goto(page.url().replace(/\/p\d+(\?.*)?$/, "")) // this run's overview
+      await page.getByText(/The next phase opens once this one passes/).waitFor()
+      await page.getByText(/Opens once you pass/).first().waitFor()
+      must((await page.getByRole("link", { name: "Start" }).count()) === 0, "no later phase may be startable while phase 1 has not passed")
       await fetch(`${mock.url}/__behavior`, { method: "POST", body: JSON.stringify({ assessment: "strong" }) })
     })
     await step("the Improve page turns the gap into a plan with checked resources, a lesson and an exercise", async () => {

@@ -1,10 +1,12 @@
 import type { DatabaseSync } from "node:sqlite"
-import { giveFeedback, writeExercise, writeLesson } from "../ai/learning.ts"
+import { giveFeedback, LESSON_BASIS_LABELS, lessonBasis, writeExercise, writeLesson } from "../ai/learning.ts"
 import type { GapContext } from "../ai/learning.ts"
+import { quoteInText } from "../analysis/grounding.ts"
 import { ApiError, text } from "../http.ts"
 import type { Body } from "../http.ts"
 import { CATALOG_HOSTS, matchCatalog, SEARCH_HOST, searchUrl } from "../learning/catalog.ts"
 import { all, exec, newId, nowIso, one } from "../sql.ts"
+import { loadSession } from "./submissions.ts"
 import { loadVersion } from "./versions.ts"
 
 /** Swappable for tests, so they never reach the network. */
@@ -93,10 +95,28 @@ function resolved(db: DatabaseSync, gap: GapRow): boolean {
   return rp?.state === "passed"
 }
 
+/** Everything the learning material is grounded in: the gap, its VERIFIED evidence and where it came from, and the phase. */
 function gapContext(db: DatabaseSync, gap: GapRow): GapContext {
   const run = one(db, "SELECT version_id FROM runs WHERE id = ?", gap.runId)!
   const version = loadVersion(db, String(run.version_id))!
   const sub = one(db, "SELECT language FROM submissions WHERE id = ?", gap.submissionId)
+  const phase = one(db, "SELECT title, objective FROM phases WHERE id = ?", gap.phaseId)
+  const assessment = one(db, "SELECT weaknesses FROM assessments WHERE submission_id = ?", gap.submissionId)
+  const source = gap.evidence.source === "code" || gap.evidence.source === "answer" ? gap.evidence.source : "none"
+  const quote = gap.evidence.quote ?? ""
+  // For an answer, the question it replied to: what the learner was actually asked when the gap showed.
+  let askedQuestion = ""
+  if (source === "answer" && quote) {
+    const messages = loadSession(db, gap.submissionId)?.messages ?? []
+    const i = messages.findIndex((m) => m.role === "candidate" && quoteInText(quote, m.content))
+    if (i > 0 && messages[i - 1].role === "interviewer") askedQuestion = messages[i - 1].content
+  }
+  let weaknesses: string[] = []
+  try {
+    weaknesses = (JSON.parse(String(assessment?.weaknesses ?? "[]")) as unknown[]).filter((w): w is string => typeof w === "string").slice(0, 5)
+  } catch {
+    weaknesses = []
+  }
   return {
     skill: gap.skill,
     title: gap.title,
@@ -104,7 +124,13 @@ function gapContext(db: DatabaseSync, gap: GapRow): GapContext {
     severity: gap.severity,
     difficulty: version.spec.difficulty,
     language: String(sub?.language ?? ""),
-    evidenceQuote: gap.evidence.quote ?? "",
+    evidenceQuote: quote,
+    evidenceSource: source,
+    evidenceLocation: source === "code" && gap.evidence.path ? `${gap.evidence.path}${gap.evidence.line ? ` line ${gap.evidence.line}` : ""}` : "",
+    askedQuestion,
+    phaseTitle: String(phase?.title ?? ""),
+    phaseObjective: String(phase?.objective ?? ""),
+    weaknesses,
     gapId: gap.id,
   }
 }
@@ -177,6 +203,8 @@ export async function gapDetail(db: DatabaseSync, candidateId: string, gapId: st
     detail: gap.detail,
     severity: gap.severity,
     evidence: gap.evidence,
+    /** Whether the lesson and exercise can be aimed at the learner's own work, or are a labelled general lesson. */
+    basis: { kind: lessonBasis(ctx), label: LESSON_BASIS_LABELS[lessonBasis(ctx)] },
     resolved: resolved(db, gap),
     runId: gap.runId,
     recommendations: all(db, "SELECT * FROM recommendations WHERE gap_id = ? ORDER BY rowid", gapId).map((r) => ({

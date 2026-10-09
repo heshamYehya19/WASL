@@ -66,6 +66,7 @@ export default function GapPage() {
 
           <Card className="mt-6">
             <CardHeader title="Mini-lesson" subtitle="Written by AI for this gap. Practice material, not an assessment." />
+            <p className={`mx-5 mt-1 rounded-xl px-3 py-2 text-xs ${gap.basis.kind === "general" ? "bg-amber-100/60 text-ink-700" : "bg-ink-100 text-ink-600"}`}>{gap.basis.label}</p>
             {gap.lesson ? (
               <div className="space-y-3 px-5 py-4">
                 <h3 className="font-semibold text-ink-900">{gap.lesson.title}</h3>

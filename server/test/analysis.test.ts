@@ -9,7 +9,8 @@ import { isMultipleChoice, judgeTurn } from "../ai/interviewer.ts"
 import type { InterviewInput } from "../ai/interviewer.ts"
 import { groundReview } from "../ai/reviewer.ts"
 import type { ReviewInput } from "../ai/reviewer.ts"
-import { finalizeSpec, SpecProblem } from "../domain/spec.ts"
+import { finalizeSpec, MAX_PHASES, MIN_PHASES, specField, SpecProblem } from "../domain/spec.ts"
+import { SchemaError } from "../ai/schema.ts"
 import type { PhaseSpec, RawSpec } from "../domain/spec.ts"
 import { canonicalSkillList, canonicalSkillName } from "../domain/skills.ts"
 
@@ -291,7 +292,7 @@ describe("grounding an assessment", () => {
 })
 
 describe("challenge specs", () => {
-  const raw = (over: Partial<RawSpec> = {}): RawSpec => ({
+  const raw = (over: Partial<RawSpec> = {}, phaseCount = 3): RawSpec => ({
     title: "A challenge title",
     summary: "A summary that is comfortably long enough to pass validation.",
     scenario: "",
@@ -299,8 +300,8 @@ describe("challenge specs", () => {
     skills: ["Python"],
     difficulty: "beginner",
     estimatedHours: 6,
-    phases: ["p1", "p2"].map((key, i) => ({
-      key,
+    phases: Array.from({ length: phaseCount }, (_, i) => ({
+      key: `p${i + 1}`,
       title: `Phase ${i + 1}`,
       objective: "Show that you can do this phase.",
       instructions: "Do the work for this phase and explain your reasoning in a short note.",
@@ -321,7 +322,7 @@ describe("challenge specs", () => {
 
   it("assigns ids, rewrites keys by position, and scales the workload to the stated budget", () => {
     const spec = finalizeSpec(raw(), ctx)
-    expect(spec.phases.map((p) => p.key)).toEqual(["p1", "p2"])
+    expect(spec.phases.map((p) => p.key)).toEqual(["p1", "p2", "p3"])
     expect(spec.phases[0].acceptanceCriteria[0].id).toBe("p1.ac1")
     expect(spec.phases[1].rubric[2].id).toBe("p2.rb3")
     expect(spec.phases.reduce((n, p) => n + p.estimatedHours, 0)).toBeCloseTo(8, 5)
@@ -330,8 +331,31 @@ describe("challenge specs", () => {
   })
   it("keeps a company's own hours when they edit", () => {
     const spec = finalizeSpec(raw(), ctx, { keepHours: true })
-    expect(spec.phases.map((p) => p.estimatedHours)).toEqual([1, 3])
-    expect(spec.estimatedHours).toBe(4)
+    expect(spec.phases.map((p) => p.estimatedHours)).toEqual([1, 3, 3])
+    expect(spec.estimatedHours).toBe(7)
+  })
+  it(`accepts ${MIN_PHASES} to ${MAX_PHASES} phases and rejects any other count, saying why`, () => {
+    expect([MIN_PHASES, MAX_PHASES]).toEqual([3, 5])
+    for (const n of [3, 4, 5]) expect(finalizeSpec(raw({}, n), ctx).phases).toHaveLength(n)
+    for (const n of [1, 2, 6, 7]) {
+      try {
+        finalizeSpec(raw({}, n), ctx)
+        expect.unreachable(`${n} phases should be rejected`)
+      } catch (err) {
+        expect(err, `${n} phases`).toBeInstanceOf(SpecProblem)
+        expect((err as SpecProblem).problems).toContain(`A challenge needs 3 to 5 phases; this one has ${n}.`)
+      }
+    }
+    // The count rule applies to a company's own edits too.
+    expect(() => finalizeSpec(raw({}, 2), ctx, { keepHours: true })).toThrow(SpecProblem)
+    expect(() => finalizeSpec(raw({}, 6), ctx, { keepHours: true })).toThrow(SpecProblem)
+  })
+  it("never trims or pads phases while parsing, so a wrong count reaches the rule instead of being hidden", () => {
+    // Parsing a six-phase answer keeps all six (no silent truncation to the maximum)...
+    expect(specField.parse(raw({}, 6), "").phases).toHaveLength(6)
+    expect(specField.parse(raw({}, 2), "").phases).toHaveLength(2)
+    // ...and an answer with no phases at all is not a challenge.
+    expect(() => specField.parse(raw({}, 0), "")).toThrow(SchemaError)
   })
   it("lists every problem at once", () => {
     const bad = raw()

@@ -1,5 +1,5 @@
 // helpers.ts must load first: it points WASL_DB_PATH at a throwaway database before db.ts reads it.
-import { afterAll, beforeEach, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest"
 import { BRIEF, fakeAi, getDb, NAHLA, noAi, ORBIT, publishChallenge, resetDatabase, SARA, startServer, useFakeAi } from "./helpers.ts"
 
 const server = await startServer()
@@ -10,6 +10,9 @@ beforeEach(() => {
   resetDatabase()
   useFakeAi()
 })
+// Several tests script the fake model by overriding fakeAi.respond. fakeAi.reset() does not undo an instance override, so
+// restore the prototype's after every test — whether it passed or failed — to keep tests independent.
+afterEach(() => void delete (fakeAi as { respond?: unknown }).respond)
 
 const create = (brief: Record<string, unknown> = BRIEF, company = NAHLA) => call("POST", "/company/challenges", company, brief)
 const detail = async (id: string, company = NAHLA) => (await call("GET", `/company/challenges/${id}`, company)).json.challenge as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -67,7 +70,8 @@ describe("generating a challenge", () => {
     const c = await detail(id)
     expect(c.status).toBe("generated")
     const spec = c.current.spec
-    expect(spec.phases.length).toBeGreaterThanOrEqual(2)
+    expect(spec.phases.length).toBeGreaterThanOrEqual(3)
+    expect(spec.phases.length).toBeLessThanOrEqual(5)
     expect(c.current.meta.origin).toBe("ai")
     for (const p of spec.phases) {
       expect(p.acceptanceCriteria.length).toBeGreaterThanOrEqual(2)
@@ -115,6 +119,109 @@ describe("generating a challenge", () => {
     expect(res.status).toBe(200)
     expect(calls).toBe(2)
     expect(fakeAi.callsFor("challenge")[1].user).toMatch(/No phase exercises the required skill "Software Testing"/)
+  })
+
+  it("starts every test with the fake model's own behaviour (no override carried over from the test before)", async () => {
+    // Runs right after the override above: it must see the prototype's respond, and an unaltered design must pass first time.
+    expect(Object.hasOwn(fakeAi, "respond")).toBe(false)
+    const id = String((await create()).json.id)
+    expect((await call("POST", `/company/challenges/${id}/generate`, NAHLA, {})).status).toBe(200)
+    expect(fakeAi.callsFor("challenge")).toHaveLength(1)
+  })
+
+  describe("phase count (3–5)", () => {
+    // Rewrites the fake model's n-th challenge answer to have counts[n] phases (dropping the last ones, or appending copies that
+    // build on the previous phase); answers beyond the list are left alone.
+    const modelReturnsPhases = (...counts: number[]) => {
+      let n = 0
+      const orig = fakeAi.respond.bind(fakeAi)
+      fakeAi.respond = (body) => {
+        const out = orig(body)
+        const req = body as { response_format?: { json_schema?: { name?: string } } }
+        if (req.response_format?.json_schema?.name !== "challenge") return out
+        const count = counts[n++]
+        if (count === undefined) return out
+        const content = JSON.parse((out.body as { choices: { message: { content: string } }[] }).choices[0].message.content)
+        const phases = content.phases.slice(0, count)
+        while (phases.length < count) {
+          const k = phases.length + 1
+          phases.push({ ...structuredClone(phases[phases.length - 1]), key: `p${k}`, title: `Extend the solution, part ${k}`, dependsOn: [`p${k - 1}`] })
+        }
+        content.phases = phases
+        return { status: 200, body: { choices: [{ message: { content: JSON.stringify(content) }, finish_reason: "stop" }] } }
+      }
+      return () => n
+    }
+    const generate = async () => {
+      const id = String((await create()).json.id)
+      return { id, res: await call("POST", `/company/challenges/${id}/generate`, NAHLA, {}) }
+    }
+
+    it("tells the model 3–5 phases, in the system prompt", async () => {
+      await generate()
+      expect(fakeAi.callsFor("challenge")[0].system).toMatch(/split into 3–5 ordered phases — never fewer than 3 and never more than 5/)
+    })
+
+    for (const count of [3, 4, 5]) {
+      it(`accepts a valid ${count}-phase challenge as generated`, async () => {
+        const calls = modelReturnsPhases(count)
+        const { id, res } = await generate()
+        expect(res.status).toBe(200)
+        expect(calls()).toBe(1)
+        const c = await detail(id)
+        expect(c.status).toBe("generated")
+        expect(c.current.spec.phases.map((p: { key: string }) => p.key)).toEqual(Array.from({ length: count }, (_, i) => `p${i + 1}`))
+      })
+    }
+
+    for (const count of [2, 6]) {
+      it(`rejects ${count} phases, retries once with the reason, and keeps the valid redo unaltered`, async () => {
+        const calls = modelReturnsPhases(count, 4)
+        const { id, res } = await generate()
+        expect(res.status).toBe(200)
+        expect(calls()).toBe(2)
+        expect(fakeAi.callsFor("challenge")[1].user).toContain(`A challenge needs 3 to 5 phases; this one has ${count}.`)
+        const c = await detail(id)
+        expect(c.current.spec.phases).toHaveLength(4)
+        expect(c.versions).toHaveLength(1)
+      })
+
+      it(`fails safe when the model keeps returning ${count} phases: 503, nothing stored, never marked generated`, async () => {
+        const calls = modelReturnsPhases(count, count)
+        const { id, res } = await generate()
+        expect(res.status).toBe(503)
+        expect(calls()).toBe(2)
+        expect(res.json.detail).toMatchObject({ templateAvailable: true })
+        const c = await detail(id)
+        expect(c.status).toBe("draft")
+        expect(c.current).toBeNull()
+        expect(c.versions).toEqual([])
+        expect(c.history.map((h: { status: string }) => h.status)).toEqual(["draft"])
+      })
+    }
+
+    it("holds a company's own edits to the same 3–5 rule", async () => {
+      const { id } = await generate()
+      const spec = (await detail(id)).current.spec
+      const withPhases = (n: number) => {
+        const s = structuredClone(spec)
+        s.phases = s.phases.slice(0, n)
+        while (s.phases.length < n) {
+          const k = s.phases.length + 1
+          s.phases.push({ ...structuredClone(s.phases[s.phases.length - 1]), key: `p${k}`, dependsOn: [`p${k - 1}`] })
+        }
+        return s
+      }
+      for (const n of [2, 6]) {
+        const res = await call("PUT", `/company/challenges/${id}/version`, NAHLA, withPhases(n))
+        expect(res.status, `${n} phases`).toBe(422)
+        expect(String(res.json.error)).toContain(`A challenge needs 3 to 5 phases; this one has ${n}.`)
+      }
+      expect((await detail(id)).versions).toHaveLength(1)
+      const ok = await call("PUT", `/company/challenges/${id}/version`, NAHLA, withPhases(5))
+      expect(ok.status, JSON.stringify(ok.json)).toBe(200)
+      expect((await detail(id)).current.spec.phases).toHaveLength(5)
+    })
   })
 
   it("fails (and stores nothing) when the model keeps returning an invalid design", async () => {

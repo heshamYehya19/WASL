@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Card } from "../ui/Card"
 import { Button, ChipInput, Field, inputClass, Notice } from "../ui/kit"
-import { DIFFICULTIES, DIMENSION_LABELS } from "../../types"
+import { DIFFICULTIES, DIMENSION_LABELS, MAX_PHASES, MIN_PHASES } from "../../types"
 import type { ChallengeSpec, Difficulty, Dimension, PhaseSpec } from "../../types"
 
 /* The structured challenge, editable. A company reviews every part of what the AI drafted: the framing, each phase's task,
@@ -74,7 +74,7 @@ function PhaseEditor({ phase, index, all, onChange, onRemove, canRemove }: { pha
           {earlier.length > 0 && (
             <fieldset>
               <legend className="mb-1 text-sm font-semibold text-ink-800">Builds on</legend>
-              <p className="mb-1.5 text-xs text-ink-500">This phase opens once these have been assessed — passed or not yet passed.</p>
+              <p className="mb-1.5 text-xs text-ink-500">Which earlier work this phase uses. Candidates take phases in order: each opens only after every phase before it has passed.</p>
               <div className="flex flex-wrap gap-3">
                 {earlier.map((p, n) => (
                   <label key={p.key} className="flex items-center gap-2 text-sm text-ink-800">
@@ -153,8 +153,8 @@ export function SpecEditor({ spec, onSave, saving }: { spec: ChallengeSpec; onSa
       </Card>
 
       <div className="space-y-3">
-        {draft.phases.map((p, i) => <PhaseEditor key={i} phase={p} index={i} all={draft.phases} onChange={(np) => updatePhase(i, np)} onRemove={() => removePhase(i)} canRemove={draft.phases.length > 2} />)}
-        {draft.phases.length < 6 && <Button variant="secondary" onClick={addPhase}>Add a phase</Button>}
+        {draft.phases.map((p, i) => <PhaseEditor key={i} phase={p} index={i} all={draft.phases} onChange={(np) => updatePhase(i, np)} onRemove={() => removePhase(i)} canRemove={draft.phases.length > MIN_PHASES} />)}
+        {draft.phases.length < MAX_PHASES && <Button variant="secondary" onClick={addPhase}>Add a phase</Button>}
       </div>
 
       <p className="text-sm text-ink-600">Total workload: <strong>{totalHours.toFixed(2).replace(/\.?0+$/, "")} hours</strong></p>

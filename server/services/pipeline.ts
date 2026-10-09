@@ -9,7 +9,7 @@
 import type { DatabaseSync } from "node:sqlite"
 import { assessSubmission, ASSESS_PROMPT_VERSION } from "../ai/assessor.ts"
 import { nextInterviewTurn } from "../ai/interviewer.ts"
-import { AiError, aiConfigured, describeAiError } from "../ai/provider.ts"
+import { AiError, aiConfigured, describeAiError, waitPhrase } from "../ai/provider.ts"
 import { REVIEW_PROMPT_VERSION, reviewSubmission } from "../ai/reviewer.ts"
 import type { ReviewResult } from "../ai/reviewer.ts"
 import { detectInjection } from "../ai/safety.ts"
@@ -44,6 +44,11 @@ import type { StoredVersion } from "./versions.ts"
 /** Submissions currently being processed in this server process. Guards against a double submit and identifies stalled work. */
 const active = new Set<string>()
 const STALE_AFTER_MS = 90_000
+/**
+ * When a provider's rate limit made a submission unavailable and said how long to wait, a retry before then is refused (it
+ * would only hit the same limit). Kept in memory: after a restart the guidance is simply forgotten and a retry is allowed.
+ */
+const retryNotBefore = new Map<string, number>()
 
 export interface Ctx {
   run: RunRow
@@ -74,6 +79,7 @@ export function ownedContext(db: DatabaseSync, candidateId: string, submissionId
 
 function markUnavailable(db: DatabaseSync, ctx: Ctx, err: unknown): void {
   const message = err instanceof AiError && err.kind === "schema" && err.message.startsWith("Not enough") ? err.message : describeAiError(err)
+  if (err instanceof AiError && err.kind === "rate_limit" && err.retryAfterMs) retryNotBefore.set(ctx.submission.id, Date.now() + err.retryAfterMs)
   transaction(db, () => {
     exec(db, "UPDATE submissions SET pipeline_error = ? WHERE id = ?", message, ctx.submission.id)
     const state = one(db, "SELECT state FROM run_phases WHERE id = ?", ctx.runPhase.id)!.state
@@ -91,6 +97,23 @@ async function locked<T>(submissionId: string, fn: () => Promise<T>): Promise<T>
   }
 }
 
+// ------------------------------------------------------------------ eligibility
+
+/** Why a phase is locked, or null when every earlier phase has passed. The one check behind start, submit, answer and retry. */
+function lockedReason(version: StoredVersion, rows: RunPhaseRow[], row: RunPhaseRow): string | null {
+  const avail = availability(phaseNodes(version), statesOf(rows)).get(row.phaseId)!
+  if (avail.available) return null
+  const titles = avail.blockedBy.map((k) => `“${version.spec.phases.find((p) => p.key === k)?.title ?? k}”`)
+  const saved = row.state === "not_started" ? "" : " Your work on this phase is saved and continues from where it stopped once they have."
+  return `This phase is locked until you pass ${titles.join(" and ")}. Phases open one at a time: each opens only after every phase before it has passed.${saved}`
+}
+
+function requireEligible(db: DatabaseSync, run: RunRow, runPhaseId: string): void {
+  const rows = runPhaseRows(db, run.id)
+  const reason = lockedReason(loadRunVersion(db, run), rows, rows.find((r) => r.id === runPhaseId)!)
+  if (reason) throw new ApiError(409, reason)
+}
+
 // ------------------------------------------------------------------ submitting
 
 export interface SubmitOutcome {
@@ -106,7 +129,8 @@ export async function startPhase(db: DatabaseSync, candidateId: string, runId: s
   const rows = runPhaseRows(db, run.id)
   const row = rows.find((r) => r.key === phaseKey)
   if (!row) throw new ApiError(404, "That phase wasn't found.")
-  if (!availability(phaseNodes(version), statesOf(rows)).get(row.phaseId)!.available) throw new ApiError(409, "That phase isn't open yet.")
+  const reason = lockedReason(version, rows, row)
+  if (reason) throw new ApiError(409, reason)
   if (row.state === "not_started") applyEvent(db, row.id, "start")
 }
 
@@ -118,11 +142,8 @@ export async function submitSolution(db: DatabaseSync, candidateId: string, runI
   if (!phase) throw new ApiError(404, "That phase wasn't found.")
   const rows = runPhaseRows(db, run.id)
   const row = rows.find((r) => r.key === phaseKey)!
-  const avail = availability(phaseNodes(version), statesOf(rows)).get(row.phaseId)!
-  if (!avail.available) {
-    const titles = avail.blockedBy.map((k) => `“${version.spec.phases.find((p) => p.key === k)?.title ?? k}”`)
-    throw new ApiError(409, `This phase opens once you've finished ${titles.join(" and ")}. A phase counts as finished when it has been assessed — passed or not.`)
-  }
+  const reason = lockedReason(version, rows, row)
+  if (reason) throw new ApiError(409, reason)
   if (!canTransition(row.state, "submit")) {
     throw new ApiError(
       409,
@@ -260,6 +281,7 @@ async function interviewStep(db: DatabaseSync, ctx: Ctx): Promise<"asked" | "fin
 
 export async function answerInterview(db: DatabaseSync, candidateId: string, submissionId: string, body: Body): Promise<{ state: string }> {
   const ctx = ownedContext(db, candidateId, submissionId)
+  requireEligible(db, ctx.run, ctx.runPhase.id)
   if (ctx.runPhase.state !== "interview_in_progress") throw new ApiError(409, "This interview isn't open for answers right now.")
   const session = loadSession(db, submissionId)
   if (!session || session.status !== "in_progress") throw new ApiError(409, "This interview is already complete.")
@@ -379,6 +401,7 @@ async function assessmentStep(db: DatabaseSync, ctx: Ctx): Promise<void> {
 /** Whether the pipeline can be run again: it failed, or it stalled (server restarted, request dropped) and nothing is working on it. */
 export function canRetry(db: DatabaseSync, ctx: Ctx): boolean {
   if (active.has(ctx.submission.id)) return false
+  if (lockedReason(ctx.version, runPhaseRows(db, ctx.run.id), ctx.runPhase)) return false // a locked phase is frozen
   if (ctx.runPhase.state === "assessment_unavailable") return true
   if (["submitted", "under_review", "interview_in_progress"].includes(ctx.runPhase.state)) {
     // An interview waiting for the candidate's answer is not stalled; only one waiting on the system is.
@@ -396,11 +419,17 @@ export async function retrySubmission(db: DatabaseSync, candidateId: string, sub
   if (ctx.submission.stage === "rejected" || ctx.submission.stage === "assessed") throw new ApiError(409, "There is nothing to retry for this submission.")
   const latest = one(db, "SELECT id FROM submissions WHERE run_phase_id = ? ORDER BY attempt DESC LIMIT 1", ctx.runPhase.id)
   if (!latest || latest.id !== submissionId) throw new ApiError(409, "Only the latest attempt can be retried.")
+  requireEligible(db, ctx.run, ctx.runPhase.id)
   if (!canRetry(db, ctx)) throw new ApiError(409, "This submission isn't waiting on a retry.")
   if (!aiConfigured()) {
     // Fail fast and honestly rather than flipping the state back and forth.
     throw new ApiError(503, describeAiError(new AiError("unconfigured", "")))
   }
+  const waitMs = (retryNotBefore.get(submissionId) ?? 0) - Date.now()
+  if (waitMs > 0) {
+    throw new ApiError(429, `The AI service asked for a short pause after too many requests. Your work is saved; nothing has been assessed. Try again in ${waitPhrase(waitMs)}.`, undefined, { retryAfterSeconds: Math.ceil(waitMs / 1000) })
+  }
+  retryNotBefore.delete(submissionId)
 
   return locked(submissionId, async () => {
     let fresh = contextFor(db, submissionId)

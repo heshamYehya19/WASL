@@ -8,6 +8,9 @@ import { canonicalSkillList, canonicalSkillName } from "./skills.ts"
 
 export const DIFFICULTIES = ["beginner", "intermediate", "advanced"] as const
 export type Difficulty = (typeof DIFFICULTIES)[number]
+/** Every challenge — generated, templated or edited — has this many phases. Enforced in finalizeSpec, not by the schema. */
+export const MIN_PHASES = 3
+export const MAX_PHASES = 5
 export const DIMENSIONS = ["correctness", "code_quality", "understanding"] as const
 export type Dimension = (typeof DIMENSIONS)[number]
 
@@ -45,7 +48,9 @@ export const specField = obj({
   skills: arr(str({ min: 1, max: 60 }), { min: 1, max: 10 }),
   difficulty: oneOf(DIFFICULTIES),
   estimatedHours: num({ min: 0.5, max: 400 }),
-  phases: arr(phaseField, { min: 2, max: 6 }),
+  // Deliberately looser than MIN_PHASES..MAX_PHASES: `arr` would silently drop extra phases, and a schema error would not tell
+  // the model why. finalizeSpec rejects a wrong count with a reason instead.
+  phases: arr(phaseField, { min: 1, max: 20, description: `Between ${MIN_PHASES} and ${MAX_PHASES} ordered phases` }),
 })
 export type RawSpec = Infer<typeof specField>
 
@@ -102,6 +107,7 @@ export interface SpecContext {
 
 /**
  * Turns a parsed spec into the canonical one or throws SpecProblem listing everything wrong:
+ *  - there are MIN_PHASES to MAX_PHASES phases;
  *  - phase keys become p1…pN by position, dependencies are rewritten, and may only point at EARLIER phases;
  *  - every phase has acceptance criteria and a rubric covering all three dimensions;
  *  - every required skill is exercised by some phase;
@@ -111,6 +117,9 @@ export interface SpecContext {
  */
 export function finalizeSpec(raw: RawSpec, ctx: SpecContext, opts: { keepHours?: boolean } = {}): ChallengeSpec {
   const problems: string[] = []
+  if (raw.phases.length < MIN_PHASES || raw.phases.length > MAX_PHASES) {
+    problems.push(`A challenge needs ${MIN_PHASES} to ${MAX_PHASES} phases; this one has ${raw.phases.length}.`)
+  }
   const keyMap = new Map<string, string>()
   raw.phases.forEach((p, i) => {
     if (keyMap.has(p.key)) problems.push(`Two phases share the key "${p.key}".`)

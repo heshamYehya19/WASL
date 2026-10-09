@@ -10,52 +10,69 @@ const phases: PhaseNode[] = [
   { id: "a", key: "p1", position: 1, dependsOn: [] },
   { id: "b", key: "p2", position: 2, dependsOn: ["p1"] },
   { id: "c", key: "p3", position: 3, dependsOn: ["p2"] },
-  { id: "d", key: "p4", position: 4, dependsOn: ["p1"] }, // a parallel branch: needs only p1
+  { id: "d", key: "p4", position: 4, dependsOn: ["p1"] }, // "builds on" p1 only — but still opens strictly after p1–p3 pass
+  { id: "e", key: "p5", position: 5, dependsOn: [] },
 ]
 const states = (s: Record<string, PhaseState>) => new Map(Object.entries(s))
+const open = (s: Record<string, PhaseState>) => [...availability(phases, states(s))].filter(([, v]) => v.available).map(([id]) => id)
 
+// Strict sequential progression (an intentional product change: a FAILED phase used to count as finished and open later phases).
 describe("which phases are open", () => {
-  it("opens only the first phase before anything is done", () => {
+  it("opens only phase 1 before anything is done", () => {
     const a = availability(phases, states({}))
-    expect(a.get("a")!.available).toBe(true)
-    expect(a.get("b")!.available).toBe(false)
+    expect(open({})).toEqual(["a"])
     expect(a.get("b")!.blockedBy).toEqual(["p1"])
+    expect(a.get("e")!.blockedBy).toEqual(["p1", "p2", "p3", "p4"])
   })
 
-  it("opens a phase once its dependency has passed", () => {
-    expect(availability(phases, states({ a: "passed" })).get("b")!.available).toBe(true)
+  it("opens each phase only when every phase before it has passed — at every step of a five-phase challenge", () => {
+    expect(open({ a: "passed" })).toEqual(["a", "b"])
+    expect(open({ a: "passed", b: "passed" })).toEqual(["a", "b", "c"])
+    expect(open({ a: "passed", b: "passed", c: "passed" })).toEqual(["a", "b", "c", "d"])
+    expect(open({ a: "passed", b: "passed", c: "passed", d: "passed" })).toEqual(["a", "b", "c", "d", "e"])
   })
 
-  it("a FAILED phase does not block the phases after it", () => {
-    const a = availability(phases, states({ a: "failed" }))
-    expect(a.get("b")!.available).toBe(true)
-    expect(a.get("d")!.available).toBe(true)
-  })
-
-  it("a phase that is only submitted, under review or in interview is not concluded, so it still blocks", () => {
-    for (const s of ["submitted", "under_review", "interview_in_progress", "revision_needed", "assessment_unavailable", "in_progress"] as const) {
-      expect(isConcluded(s), s).toBe(false)
-      expect(availability(phases, states({ a: s })).get("b")!.available, s).toBe(false)
+  it("nothing short of a pass opens the next phase: not starting, submitting, reviewing, an interview, a fail, an unavailable assessment or a revision request", () => {
+    for (const s of PHASE_STATES.filter((x) => x !== "passed")) {
+      expect(open({ a: "passed", b: s }), s).toEqual(["a", "b"]) // phase 3 stays locked while phase 2 is anything but passed
+      expect(availability(phases, states({ a: "passed", b: s })).get("c")!.blockedBy, s).toEqual(["p2"])
     }
+    // "failed" is concluded (the engine reached a decision), but concluded is not passed.
+    expect(isConcluded("failed")).toBe(true)
+    expect(open({ a: "failed" })).toEqual(["a"])
   })
 
-  it("a phase on a parallel branch is not held up by an unrelated one", () => {
+  it("does not let a dependency graph skip ahead: a phase that only 'builds on' phase 1 still waits for phases 2 and 3", () => {
     const a = availability(phases, states({ a: "passed", b: "failed" }))
-    expect(a.get("d")!.available).toBe(true)
-    expect(a.get("c")!.available).toBe(true) // p2 is concluded (failed), so p3 is open
+    expect(a.get("d")!.available).toBe(false)
+    expect(a.get("d")!.blockedBy).toEqual(["p2", "p3"])
+    expect(a.get("c")!.available).toBe(false)
+  })
+
+  it("locks a later phase again if an earlier one is not passed — e.g. work begun under the old rule (it is frozen, not reset)", () => {
+    // Phase 3 was started while phase 2 had only failed: phase 3 keeps its state but is not available.
+    const a = availability(phases, states({ a: "passed", b: "failed", c: "interview_in_progress" }))
+    expect(a.get("c")!.available).toBe(false)
+    expect(availability(phases, states({ a: "passed", b: "passed", c: "interview_in_progress" })).get("c")!.available).toBe(true)
+  })
+
+  it("orders by position, not by the order the phases are listed in", () => {
+    const shuffled = [phases[2], phases[0], phases[4], phases[1], phases[3]]
+    expect([...availability(shuffled, states({ a: "passed" }))].filter(([, v]) => v.available).map(([id]) => id).sort()).toEqual(["a", "b"])
   })
 })
 
 describe("when the whole solution is complete", () => {
+  const all = { a: "passed", b: "passed", c: "passed", d: "passed", e: "passed" } as const
   it("needs EVERY phase to have passed", () => {
-    expect(completion(phases, states({ a: "passed", b: "passed", c: "passed", d: "passed" })).complete).toBe(true)
+    expect(completion(phases, states(all)).complete).toBe(true)
   })
 
-  it("is not complete while any phase has failed — even though later phases were reachable", () => {
-    const c = completion(phases, states({ a: "passed", b: "failed", c: "passed", d: "passed" }))
+  it("is not complete while any phase has failed — including a later phase recorded under the old rule", () => {
+    const c = completion(phases, states({ ...all, b: "failed" }))
     expect(c.complete).toBe(false)
     expect(c.remaining).toEqual(["b"])
-    expect(c.passed).toBe(3)
+    expect(c.passed).toBe(4)
   })
 
   it("is not complete when a phase was never attempted, or has no phases at all", () => {
@@ -63,8 +80,11 @@ describe("when the whole solution is complete", () => {
     expect(completion([], states({})).complete).toBe(false)
   })
 
-  it("becomes complete once the failed phase is later passed", () => {
-    expect(completion(phases, states({ a: "passed", b: "passed", c: "passed", d: "passed" })).complete).toBe(true)
+  it("is about completion, not eligibility: the last phase can be open while the run is still incomplete", () => {
+    const s = states({ a: "passed", b: "passed", c: "passed", d: "passed", e: "in_progress" })
+    expect(availability(phases, s).get("e")!.available).toBe(true)
+    expect(completion(phases, s).complete).toBe(false)
+    expect(completion(phases, states(all)).complete).toBe(true)
   })
 })
 

@@ -7,7 +7,7 @@ export type { PhaseState } from "../server/domain/phases.ts"
 export { PHASE_STATE_LABELS } from "../server/domain/phases.ts"
 export { PASS_RULE, RATING_LABELS, MIN_ANSWERED_QUESTIONS, MAX_QUESTIONS } from "../server/domain/decision.ts"
 export type { ChallengeSpec, PhaseSpec, Difficulty, Dimension } from "../server/domain/spec.ts"
-export { DIMENSION_LABELS, DIFFICULTIES } from "../server/domain/spec.ts"
+export { DIMENSION_LABELS, DIFFICULTIES, MIN_PHASES, MAX_PHASES } from "../server/domain/spec.ts"
 
 import type { ChallengeStatus } from "../server/domain/lifecycle.ts"
 import type { PhaseState } from "../server/domain/phases.ts"
@@ -314,6 +314,8 @@ export interface GapDetail {
   detail: string
   severity: "minor" | "moderate" | "significant"
   evidence: { source: string; quote: string; path: string; line: number | null }
+  /** "evidence": the lesson and exercise are aimed at a verified line of the learner's work; "general": a labelled general lesson. */
+  basis: { kind: "evidence" | "general"; label: string }
   resolved: boolean
   runId: string
   recommendations: { id: string; title: string; provider: string; url: string; kind: "catalog" | "search"; verified: boolean; verifiedAt: string | null; note: string; why: string }[]

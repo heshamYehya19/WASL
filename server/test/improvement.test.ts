@@ -1,6 +1,6 @@
 // helpers.ts must load first: it points WASL_DB_PATH at a throwaway database before db.ts reads it.
-import { afterAll, beforeEach, describe, expect, it } from "vitest"
-import { clearLinkChecks, fakeAi, getDb, learningDeps, linksOk, noAi, passPhase, publishChallenge, resetDatabase, SARA, startRun, startServer, useFakeAi } from "./helpers.ts"
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest"
+import { clearLinkChecks, fakeAi, getDb, GOOD_ANSWER, learningDeps, linksOk, noAi, passPhase, publishChallenge, resetDatabase, SARA, startRun, startServer, useFakeAi } from "./helpers.ts"
 import { verifyResourceUrl } from "../services/learning.ts"
 import { CATALOG, matchCatalog } from "../learning/catalog.ts"
 
@@ -172,5 +172,84 @@ describe("AI mini-lessons and exercises", () => {
     const g = await gap()
     expect(g.recommendations.length).toBeGreaterThan(0)
     expect(g.lesson).toBeNull()
+  })
+})
+
+describe("lessons and exercises are grounded in the actual gap and its evidence", () => {
+  afterEach(() => void delete (fakeAi as { respond?: unknown }).respond)
+
+  /** Re-assesses phase 1 (not passed) with the fake model reporting `g` as its only gap. Returns that gap's id. */
+  const gapFrom = async (g: { title: string; detail: string; evidenceSource: "code" | "answer" | "none"; evidenceQuote: string }) => {
+    const orig = fakeAi.respond.bind(fakeAi)
+    fakeAi.respond = (body) => {
+      const out = orig(body)
+      if ((body as { response_format?: { json_schema?: { name?: string } } }).response_format?.json_schema?.name !== "assessment") return out
+      const content = JSON.parse((out.body as { choices: { message: { content: string } }[] }).choices[0].message.content)
+      content.gaps = [{ skill: "Python", severity: "moderate", ...g }]
+      return { status: 200, body: { choices: [{ message: { content: JSON.stringify(content) }, finish_reason: "stop" }] } }
+    }
+    const { submissionId } = await passPhase(call, runId, "p1")
+    return { id: String(rows("SELECT id FROM skill_gaps WHERE title = ?", g.title)[0].id), submissionId }
+  }
+  const material = async (id: string) => {
+    await call("POST", `/learning/gaps/${id}/lesson`, SARA)
+    await call("POST", `/learning/gaps/${id}/exercise`, SARA)
+    const ex = ((await call("GET", `/learning/gaps/${id}`, SARA)).json.gap as { exercise: { id: string } }).exercise
+    await call("POST", `/learning/exercises/${ex.id}/answers`, SARA, { answer: "It keeps going after a bad line and reports each one with its line number." })
+    return { lesson: fakeAi.callsFor("lesson").pop()!, exercise: fakeAi.callsFor("exercise").pop()!, feedback: fakeAi.callsFor("exercise_feedback").pop()! }
+  }
+
+  it("aims lesson, exercise and feedback at a gap shown in an interview answer — with the question that answer replied to", async () => {
+    const quote = GOOD_ANSWER.slice(0, 60)
+    const { id, submissionId } = await gapFrom({ title: "Explaining control flow", detail: "Could not say why the enterprise check runs before the keyword checks.", evidenceSource: "answer", evidenceQuote: quote })
+    const g = (await call("GET", `/learning/gaps/${id}`, SARA)).json.gap as { basis: { kind: string; label: string } }
+    expect(g.basis.kind).toBe("evidence")
+    expect(g.basis.label).toMatch(/Based on your own work/)
+
+    // The question the quoted answer replied to is the interviewer message right before it.
+    const msgs = rows("SELECT m.role, m.content FROM interview_messages m JOIN interview_sessions s ON s.id = m.session_id WHERE s.submission_id = ? ORDER BY m.seq", submissionId)
+    const firstQuestion = String(msgs.find((m) => m.role === "interviewer")!.content)
+
+    const { lesson, exercise, feedback } = await material(id)
+    for (const [name, req] of Object.entries({ lesson, exercise, feedback })) {
+      expect(req.user, name).toContain("Skill: Python")
+      expect(req.user, name).toContain("The gap: Explaining control flow")
+      expect(req.user, name).toContain("Could not say why the enterprise check runs before the keyword checks.")
+      expect(req.user, name).toContain("Basis: EVIDENCE")
+      expect(req.user, name).toContain(`<untrusted_data kind="learner_answer_excerpt">\n${quote}`)
+      expect(req.user, name).toContain(`<untrusted_data kind="interview_question">\n${firstQuestion}`)
+      expect(req.user, name).toContain("“Plan the approach”")
+      expect(req.system, name).toMatch(/exact weakness/)
+    }
+    expect(exercise.system).toMatch(/tests exactly this gap/)
+    expect(feedback.system).toMatch(/against the exercise and this gap only/)
+    expect(feedback.user).toContain('<untrusted_data kind="learner_answer">')
+  })
+
+  it("for code evidence, gives the verified line and where it is", async () => {
+    const { id } = await gapFrom({ title: "Keyword matching edge cases", detail: "Matching substrings of words gives false billing matches.", evidenceSource: "code", evidenceQuote: "if any(word in text for word in BILLING):" })
+    const { lesson } = await material(id)
+    expect(lesson.user).toContain("Basis: EVIDENCE — a verified line from the learner's own code")
+    expect(lesson.user).toMatch(/\(\S+ line \d+\)/)
+    expect(lesson.user).toContain('<untrusted_data kind="learner_code_line">\nif any(word in text for word in BILLING):')
+  })
+
+  it("without verified evidence — none given, or a quote that is not in the work — gives a labelled GENERAL lesson, never a diagnosis", async () => {
+    // The default gap from the beforeEach cites nothing.
+    expect(((await gap()).basis as { kind: string }).kind).toBe("general")
+    // A quote the model made up is dropped by the assessor, so it cannot be presented as the learner's own work.
+    const { id } = await gapFrom({ title: "Invented diagnosis", detail: "Uses recursion badly.", evidenceSource: "code", evidenceQuote: "def recurse_forever(): return recurse_forever()" })
+    const g = (await call("GET", `/learning/gaps/${id}`, SARA)).json.gap as { basis: { kind: string; label: string }; evidence: { source: string; quote: string } }
+    expect(g.evidence).toMatchObject({ source: "none", quote: "" })
+    expect(g.basis.kind).toBe("general")
+    expect(g.basis.label).toMatch(/General lesson.*did not point to a specific line of your work/)
+
+    const { lesson, exercise } = await material(id)
+    for (const req of [lesson, exercise]) {
+      expect(req.user).toContain("Basis: GENERAL")
+      expect(req.user).not.toContain("recurse_forever")
+      expect(req.user).not.toContain("learner_code_line")
+      expect(req.system).toMatch(/If the basis is GENERAL, you do not know what the learner did/)
+    }
   })
 })

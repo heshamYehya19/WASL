@@ -85,17 +85,26 @@ export function redact(message: string): string {
   return out.replace(/\b(gsk_|AIza|sk-)[A-Za-z0-9_-]{8,}/g, "[key]")
 }
 
-/** What to tell a person when a model call failed: honest, recoverable, never a result. */
+/** "about 12 seconds" / "about 2 minutes", or "a minute" when the provider gave no guidance. */
+export const waitPhrase = (ms?: number) => {
+  if (!ms || ms <= 0) return "a minute"
+  const s = Math.max(1, Math.ceil(ms / 1000))
+  return s < 90 ? `about ${s} second${s === 1 ? "" : "s"}` : `about ${Math.ceil(s / 60)} minutes`
+}
+
+/** What to tell a person when a model call failed: honest, recoverable, never a result. Each kind of failure is named. */
 export function describeAiError(err: unknown): string {
   if (!(err instanceof AiError)) return "Something went wrong while processing this step. Your work is saved — try again."
   switch (err.kind) {
     case "unconfigured":
       return "The AI review isn't available on this server right now (no AI provider is configured). Your work is saved; nothing has been assessed. Try again later."
     case "rate_limit":
+      return `The AI service is handling too many requests right now. Your work is saved; nothing has been assessed. Try again in ${waitPhrase(err.retryAfterMs)}.`
     case "timeout":
+      return "The AI service took too long to answer. Your work is saved; nothing has been assessed. Try again in a minute."
     case "network":
     case "http":
-      return "The AI service didn't respond in time. Your work is saved; nothing has been assessed. Try again in a minute."
+      return "The AI service couldn't be reached or returned an error. Your work is saved; nothing has been assessed. Try again in a minute."
     case "auth":
       return "The AI service is not available because of a configuration problem on the server. Your work is saved; nothing has been assessed."
     default:
@@ -125,12 +134,15 @@ export interface Completion<T> {
 }
 
 const RETRYABLE: AiErrorKind[] = ["network", "timeout", "bad_json", "schema", "http"]
+/** The longest a request will wait on a provider's retry guidance, and it waits at most once. Longer waits are reported instead. */
+export const MAX_RATE_LIMIT_WAIT_MS = 8_000
 
 /**
  * Asks for a JSON answer matching `output`. Providers are tried in order (Groq, then Gemini by default); a retryable failure
  * (network, timeout, malformed JSON, schema mismatch, 5xx) is retried once on the same provider, a rate limit or auth failure
- * moves on to the next one. Throws AiError when nothing produced a valid answer — callers must treat that as "unavailable",
- * never as a result.
+ * moves on to the next one. If every provider failed and one of them was rate-limited with a short retry window, the request
+ * waits that window once (never more than MAX_RATE_LIMIT_WAIT_MS) and tries that provider once more. Throws AiError when
+ * nothing produced a valid answer — callers must treat that as "unavailable", never as a result.
  */
 export async function completeJson<T>(opts: CompleteJsonOptions<T>): Promise<Completion<T>> {
   const providers = configuredProviders()
@@ -141,6 +153,8 @@ export async function completeJson<T>(opts: CompleteJsonOptions<T>): Promise<Com
   }
   let attempts = 0
   let last: AiError = new AiError("network", "No provider answered.")
+  let lastProvider = providers[providers.length - 1]
+  let shortWait: { provider: Provider; ms: number } | null = null
   for (const provider of providers) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       attempts++
@@ -150,24 +164,29 @@ export async function completeJson<T>(opts: CompleteJsonOptions<T>): Promise<Com
         return { value, provider: provider.id, model: provider.model, attempts }
       } catch (err) {
         last = toAiError(err)
+        lastProvider = provider
+        if (last.kind === "rate_limit") {
+          const ms = last.retryAfterMs
+          if (ms && ms <= MAX_RATE_LIMIT_WAIT_MS && (!shortWait || ms < shortWait.ms)) shortWait = { provider, ms }
+        }
         if (last.kind === "rate_limit" || last.kind === "auth" || last.kind === "refused") break // next provider
         if (!RETRYABLE.includes(last.kind)) break
       }
     }
-    // A short rate-limit window on the only provider is worth waiting out once.
-    if (last.kind === "rate_limit" && providers.length === 1 && last.retryAfterMs && last.retryAfterMs <= 8_000) {
-      await llmDeps.sleep(last.retryAfterMs)
-      attempts++
-      try {
-        const value = await callOnce(provider, opts)
-        record(opts, { ok: true, provider: provider.id, model: provider.model, errorKind: "", attempts, started })
-        return { value, provider: provider.id, model: provider.model, attempts }
-      } catch (err) {
-        last = toAiError(err)
-      }
+  }
+  // Every provider failed. A short rate-limit window is worth waiting out once — bounded, and only once per request.
+  if (shortWait) {
+    await llmDeps.sleep(shortWait.ms)
+    attempts++
+    try {
+      const value = await callOnce(shortWait.provider, opts)
+      record(opts, { ok: true, provider: shortWait.provider.id, model: shortWait.provider.model, errorKind: "", attempts, started })
+      return { value, provider: shortWait.provider.id, model: shortWait.provider.model, attempts }
+    } catch (err) {
+      last = toAiError(err)
+      lastProvider = shortWait.provider
     }
   }
-  const lastProvider = providers[providers.length - 1]
   record(opts, { ok: false, provider: lastProvider.id, model: lastProvider.model, errorKind: last.kind, attempts, started })
   throw last
 }
@@ -240,15 +259,38 @@ async function callGemini<T>(p: Provider, opts: CompleteJsonOptions<T>): Promise
   return candidate?.content?.parts?.map((part) => part.text ?? "").join("") ?? ""
 }
 
+/**
+ * A provider's retry guidance, in ms, from (in order): the Retry-After header (seconds or an HTTP date), Gemini's
+ * RetryInfo.retryDelay ("6s"), or Groq's "Please try again in 1m2.5s" in the message. Undefined when there is none or it is
+ * not a sensible positive duration (capped at an hour so a garbled value can't park a submission).
+ */
+export function retryAfterMs(res: Response, body: { error?: { message?: string; details?: { retryDelay?: string }[] } } | null): number | undefined {
+  const sane = (ms: number) => (Number.isFinite(ms) && ms > 0 ? Math.min(ms, 3_600_000) : undefined)
+  const header = res.headers.get("retry-after")?.trim()
+  if (header) {
+    if (/^\d+(\.\d+)?$/.test(header)) return sane(Number(header) * 1000)
+    const at = Date.parse(header)
+    if (!Number.isNaN(at)) return sane(at - Date.now())
+  }
+  const delay = body?.error?.details?.find((d) => typeof d?.retryDelay === "string")?.retryDelay
+  const fromDelay = delay ? /^(\d+(?:\.\d+)?)s$/.exec(delay.trim()) : null
+  if (fromDelay) return sane(Number(fromDelay[1]) * 1000)
+  const inText = /try again in (?:(\d+)m)?(\d+(?:\.\d+)?)s/i.exec(body?.error?.message ?? "")
+  if (inText) return sane((Number(inText[1] ?? 0) * 60 + Number(inText[2])) * 1000)
+  return undefined
+}
+
 async function throwIfFailed(p: Provider, res: Response): Promise<void> {
   if (res.ok) return
-  const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+  const body = (await res.json().catch(() => null)) as { error?: { message?: string; code?: string; details?: { retryDelay?: string }[] } } | null
   const detail = body?.error?.message ? `: ${redact(body.error.message).slice(0, 200)}` : ""
   const message = `${p.label} returned HTTP ${res.status}${detail}`
-  if (res.status === 429) {
-    const retryAfter = Number(res.headers.get("retry-after"))
-    throw new AiError("rate_limit", message, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined)
+  // Groq's strict json_schema mode reports an answer it could not validate — including one cut off by the token limit — as a
+  // 400 rather than finish_reason "length". That is an invalid answer (retried the same way), not a service outage.
+  if (p.id === "groq" && res.status === 400 && (body?.error?.code === "json_validate_failed" || /failed to validate json|does not match the expected schema/i.test(body?.error?.message ?? ""))) {
+    throw new AiError("bad_json", `${p.label}'s answer could not be validated as JSON (it may have been cut off).`)
   }
+  if (res.status === 429) throw new AiError("rate_limit", message, retryAfterMs(res, body))
   if (res.status === 401 || res.status === 403) throw new AiError("auth", message)
   throw new AiError("http", message)
 }

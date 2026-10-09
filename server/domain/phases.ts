@@ -25,30 +25,34 @@ export interface PhaseNode {
   id: string
   key: string
   position: number
-  /** Keys of the phases that must be concluded before this one opens. */
+  /** Keys of the earlier phases this one builds on. Describes the work; it does not decide when the phase opens. */
   dependsOn: string[]
 }
 
 export interface Availability {
   available: boolean
-  /** Keys of the dependencies that are not concluded yet. */
+  /** Keys of the earlier phases that have not passed yet, in order. */
   blockedBy: string[]
 }
 
 /**
- * A phase opens when every phase it depends on has been concluded. A FAILED dependency counts as concluded, so a failed
- * phase never blocks a later eligible phase — the student can keep moving and come back. (Completion of the whole run is a
- * separate, stricter rule: see `completion`.)
+ * Strictly sequential: phase N opens only when EVERY earlier phase (by position) has a recorded pass. Every phase is required,
+ * and only an assessment can pass a phase, so starting, submitting, finishing an interview, a failed result, an unavailable
+ * assessment or a retry in progress never opens the next phase. (Intentional change: a failed phase used to count as
+ * "concluded" and open the phases after it.)
+ *
+ * A phase that is no longer eligible — work begun under the earlier rule while an earlier phase had not passed — is frozen,
+ * not reset: its submissions, interview and any recorded result are kept, but it takes no new start, submission, answer or
+ * retry until every earlier phase has passed, and then it continues from where it stopped. (A pass is final, so an eligible
+ * phase cannot otherwise become ineligible.) Completion of the whole run is the separate rule in `completion`.
  */
 export function availability(phases: PhaseNode[], states: ReadonlyMap<string, PhaseState>): Map<string, Availability> {
-  const byKey = new Map(phases.map((p) => [p.key, p]))
+  const ordered = [...phases].sort((a, b) => a.position - b.position)
   const out = new Map<string, Availability>()
-  for (const phase of phases) {
-    const blockedBy = phase.dependsOn.filter((key) => {
-      const dep = byKey.get(key)
-      return !dep || !isConcluded(states.get(dep.id) ?? "not_started")
-    })
-    out.set(phase.id, { available: blockedBy.length === 0, blockedBy })
+  const notPassedYet: string[] = []
+  for (const phase of ordered) {
+    out.set(phase.id, { available: notPassedYet.length === 0, blockedBy: [...notPassedYet] })
+    if (states.get(phase.id) !== "passed") notPassedYet.push(phase.key)
   }
   return out
 }

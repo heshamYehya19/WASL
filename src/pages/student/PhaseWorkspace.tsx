@@ -129,7 +129,9 @@ export default function PhaseWorkspace() {
   const r = run.data.run
   const sub = submission.data?.submission
   const canSubmit = r.status === "in_progress" && phase.available && SUBMITTABLE.includes(phase.state)
-  const locked = !phase.available && phase.state === "not_started"
+  // Strictly sequential: locked until every earlier phase has passed — even if work here was started earlier. The server
+  // refuses start, submit, answer and retry on a locked phase; the page mirrors that instead of offering them.
+  const locked = !phase.available
   const first = !phase.latestSubmission
 
   return (
@@ -167,8 +169,9 @@ export default function PhaseWorkspace() {
 
         <div className="space-y-4 lg:col-span-3">
           {locked && (
-            <Notice tone="info" title="This phase isn't open yet">
-              It opens once you've finished {phase.blockedBy.map((b) => `“${b.title}”`).join(" and ")} — a phase counts as finished when it's been assessed, whether passed or not yet.
+            <Notice tone="info" title="This phase is locked">
+              It opens once you pass {phase.blockedBy.map((b) => `“${b.title}”`).join(" and ")}. Phases open one at a time: each opens only after every phase before it has passed.
+              {phase.state !== "not_started" && " Your work here is saved and continues from where it stopped once they have."}
             </Notice>
           )}
           {r.status === "completed" && <Notice tone="success">This work was submitted as complete, so new submissions are closed.</Notice>}
@@ -182,7 +185,7 @@ export default function PhaseWorkspace() {
                   audience="candidate"
                   busy={busy}
                   retrying={retrying}
-                  onAnswer={async (answer) => {
+                  onAnswer={locked ? undefined : async (answer) => {
                     setBusy(true)
                     setActionError(null)
                     try {
@@ -192,7 +195,7 @@ export default function PhaseWorkspace() {
                       setBusy(false)
                     }
                   }}
-                  onRetry={async () => {
+                  onRetry={locked ? undefined : async () => {
                     setRetrying(true)
                     setActionError(null)
                     try {
@@ -223,7 +226,7 @@ export default function PhaseWorkspace() {
               )}
             </div>
           )}
-          {phase.state === "passed" && <Notice tone="success">This phase has passed. Open the next phase from the overview.</Notice>}
+          {phase.state === "passed" && <Notice tone="success">This phase has passed. If there is a next phase, it is now open on the overview.</Notice>}
         </div>
       </div>
     </div>

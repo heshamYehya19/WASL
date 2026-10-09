@@ -57,7 +57,8 @@ function Sharing({ run, onChanged }: { run: RunView; onChanged: () => void }) {
 }
 
 function PhaseRow({ runId, phase, index, runDone }: { runId: string; phase: RunPhaseView; index: number; runDone: boolean }) {
-  const locked = !phase.available && phase.state === "not_started"
+  // Phases open strictly in order: a phase is locked until every phase before it has passed, whatever its own state.
+  const locked = !phase.available
   const ratings = phase.latestSubmission?.assessment?.ratings
   return (
     <li>
@@ -72,10 +73,11 @@ function PhaseRow({ runId, phase, index, runDone }: { runId: string; phase: RunP
             <p className="mt-1.5 text-sm text-ink-600">{phase.objective}</p>
             {locked && (
               <p className="mt-2 text-xs text-ink-500">
-                Opens once you've finished {phase.blockedBy.map((b) => `“${b.title}”`).join(" and ")}. A phase counts as finished when it has been assessed — passed or not yet passed.
+                Opens once you pass {phase.blockedBy.map((b) => `“${b.title}”`).join(" and ")}. Phases open one at a time, each after every phase before it has passed.
+                {phase.state !== "not_started" && " Your work here is saved and continues once they have."}
               </p>
             )}
-            {!locked && phase.state === "failed" && <p className="mt-2 text-xs text-ink-600">Not passed yet — the feedback is on the phase page, and you can submit again whenever you're ready. Later phases are open meanwhile.</p>}
+            {!locked && phase.state === "failed" && <p className="mt-2 text-xs text-ink-600">Not passed yet — the feedback is on the phase page, and you can submit again whenever you're ready. The next phase opens once this one passes.</p>}
             {ratings && (
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-ink-600">
                 <span className="flex items-center gap-2">Correctness <RatingPips rating={ratings.correctness} /></span>
@@ -87,9 +89,9 @@ function PhaseRow({ runId, phase, index, runDone }: { runId: string; phase: RunP
           <div className="flex shrink-0 flex-col items-end gap-1 text-xs text-ink-500">
             <span>≈ {phase.estimatedHours} h</span>
             {phase.attempts > 0 && <span>{phase.attempts} attempt{phase.attempts === 1 ? "" : "s"}</span>}
-            {!locked && (
+            {(!locked || phase.attempts > 0) && (
               <Link to={`/student/work/${runId}/${phase.key}`} className="mt-1 rounded-full bg-night px-4 py-1.5 text-sm font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-teal-600">
-                {phase.state === "passed" || runDone ? "Open" : phase.state === "not_started" ? "Start" : "Continue"}
+                {locked ? "View" : phase.state === "passed" || runDone ? "Open" : phase.state === "not_started" ? "Start" : "Continue"}
               </Link>
             )}
           </div>
