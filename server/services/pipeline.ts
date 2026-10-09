@@ -23,7 +23,7 @@ import { ApiError, text } from "../http.ts"
 import type { Body } from "../http.ts"
 import { exec, newId, nowIso, one, transaction } from "../sql.ts"
 import { notify } from "./notifications.ts"
-import { applyEvent, loadRunVersion, ownedRun, phaseNodes, runPhaseRows, statesOf } from "./runs.ts"
+import { applyEvent, loadRunVersion, ownedRun, phaseNodes, runPhaseRows, statesOf, submittedPhaseIds } from "./runs.ts"
 import type { RunPhaseRow, RunRow } from "./runs.ts"
 import {
   buildArtifacts,
@@ -99,18 +99,21 @@ async function locked<T>(submissionId: string, fn: () => Promise<T>): Promise<T>
 
 // ------------------------------------------------------------------ eligibility
 
-/** Why a phase is locked, or null when every earlier phase has passed. The one check behind start, submit, answer and retry. */
-function lockedReason(version: StoredVersion, rows: RunPhaseRow[], row: RunPhaseRow): string | null {
-  const avail = availability(phaseNodes(version), statesOf(rows)).get(row.phaseId)!
+/**
+ * Why a phase is locked, or null when every earlier phase has a valid recorded submission. The one check behind start,
+ * submit, answer and retry — so no endpoint, payload or page can skip submitting the phase before.
+ */
+function lockedReason(db: DatabaseSync, run: RunRow, version: StoredVersion, row: RunPhaseRow): string | null {
+  const avail = availability(phaseNodes(version), submittedPhaseIds(db, run.id)).get(row.phaseId)!
   if (avail.available) return null
   const titles = avail.blockedBy.map((k) => `“${version.spec.phases.find((p) => p.key === k)?.title ?? k}”`)
-  const saved = row.state === "not_started" ? "" : " Your work on this phase is saved and continues from where it stopped once they have."
-  return `This phase is locked until you pass ${titles.join(" and ")}. Phases open one at a time: each opens only after every phase before it has passed.${saved}`
+  const saved = row.state === "not_started" ? "" : " Your work on this phase is saved and continues from where it stopped once you have."
+  return `This phase opens once you submit ${titles.join(" and ")}. Phases open in order: each opens when the one before it has a submission that was accepted for review — it doesn't need to have passed.${saved}`
 }
 
 function requireEligible(db: DatabaseSync, run: RunRow, runPhaseId: string): void {
-  const rows = runPhaseRows(db, run.id)
-  const reason = lockedReason(loadRunVersion(db, run), rows, rows.find((r) => r.id === runPhaseId)!)
+  const row = runPhaseRows(db, run.id).find((r) => r.id === runPhaseId)!
+  const reason = lockedReason(db, run, loadRunVersion(db, run), row)
   if (reason) throw new ApiError(409, reason)
 }
 
@@ -129,7 +132,7 @@ export async function startPhase(db: DatabaseSync, candidateId: string, runId: s
   const rows = runPhaseRows(db, run.id)
   const row = rows.find((r) => r.key === phaseKey)
   if (!row) throw new ApiError(404, "That phase wasn't found.")
-  const reason = lockedReason(version, rows, row)
+  const reason = lockedReason(db, run, version, row)
   if (reason) throw new ApiError(409, reason)
   if (row.state === "not_started") applyEvent(db, row.id, "start")
 }
@@ -142,7 +145,7 @@ export async function submitSolution(db: DatabaseSync, candidateId: string, runI
   if (!phase) throw new ApiError(404, "That phase wasn't found.")
   const rows = runPhaseRows(db, run.id)
   const row = rows.find((r) => r.key === phaseKey)!
-  const reason = lockedReason(version, rows, row)
+  const reason = lockedReason(db, run, version, row)
   if (reason) throw new ApiError(409, reason)
   if (!canTransition(row.state, "submit")) {
     throw new ApiError(
@@ -401,7 +404,7 @@ async function assessmentStep(db: DatabaseSync, ctx: Ctx): Promise<void> {
 /** Whether the pipeline can be run again: it failed, or it stalled (server restarted, request dropped) and nothing is working on it. */
 export function canRetry(db: DatabaseSync, ctx: Ctx): boolean {
   if (active.has(ctx.submission.id)) return false
-  if (lockedReason(ctx.version, runPhaseRows(db, ctx.run.id), ctx.runPhase)) return false // a locked phase is frozen
+  if (lockedReason(db, ctx.run, ctx.version, ctx.runPhase)) return false // a locked phase is frozen
   if (ctx.runPhase.state === "assessment_unavailable") return true
   if (["submitted", "under_review", "interview_in_progress"].includes(ctx.runPhase.state)) {
     // An interview waiting for the candidate's answer is not stalled; only one waiting on the system is.

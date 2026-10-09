@@ -74,7 +74,7 @@ function PhaseEditor({ phase, index, all, onChange, onRemove, canRemove }: { pha
           {earlier.length > 0 && (
             <fieldset>
               <legend className="mb-1 text-sm font-semibold text-ink-800">Builds on</legend>
-              <p className="mb-1.5 text-xs text-ink-500">Which earlier work this phase uses. Candidates take phases in order: each opens only after every phase before it has passed.</p>
+              <p className="mb-1.5 text-xs text-ink-500">Which earlier work this phase uses. Candidates take phases in order: each opens once the one before it has a submission accepted for review.</p>
               <div className="flex flex-wrap gap-3">
                 {earlier.map((p, n) => (
                   <label key={p.key} className="flex items-center gap-2 text-sm text-ink-800">

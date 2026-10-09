@@ -1,6 +1,6 @@
 // helpers.ts must load first: it points WASL_DB_PATH at a throwaway database before db.ts reads it.
 import { afterAll, beforeEach, describe, expect, it } from "vitest"
-import { BRIEF, GOOD_ANSWER, GOOD_CODE, fakeAi, finishInterview, getDb, NAHLA, passPhase, publishChallenge, resetDatabase, SARA, startRun, startServer, submit, useFakeAi } from "./helpers.ts"
+import { BRIEF, GOOD_ANSWER, GOOD_CODE, fakeAi, finishInterview, getDb, NAHLA, OMAR, passPhase, publishChallenge, resetDatabase, SARA, startRun, startServer, submit, useFakeAi } from "./helpers.ts"
 
 const server = await startServer()
 const call = server.call
@@ -91,7 +91,7 @@ describe("the Proof Engine, end to end", () => {
     expect((await call("POST", `/submissions/${submissionId}/answer`, SARA, { answer: GOOD_ANSWER })).status).toBe(409)
   })
 
-  it("fails a phase whose work or understanding is weak — with reasons — and keeps the next phase locked until it passes", async () => {
+  it("fails a phase whose work or understanding is weak — with reasons — and the next phase stays open (it was submitted)", async () => {
     fakeAi.behavior.assessment = "weak"
     const out = await submit(call, runId, "p1")
     const submissionId = String(out.json.submissionId)
@@ -101,15 +101,10 @@ describe("the Proof Engine, end to end", () => {
     expect(d.assessment?.outcome).toBe("failed")
     expect(d.assessment?.outcomeReason).toMatch(/not passed yet/i)
 
-    // Strict sequential progression (an intentional change: a failed phase used to open the next one).
+    // Sequential SUBMISSION unlock: phase 1 has a recorded submission, so phase 2 is open even though phase 1 did not pass.
     const run = (await call("GET", `/work/${runId}`, SARA)).json.run as { phases: { key: string; available: boolean; state: string }[] }
-    expect(run.phases.find((p) => p.key === "p2")!.available).toBe(false)
+    expect(run.phases.find((p) => p.key === "p2")!.available).toBe(true)
     expect(run.phases.find((p) => p.key === "p1")!.state).toBe("failed")
-    expect((await submit(call, runId, "p2")).status).toBe(409)
-
-    // Passing phase 1 on a new attempt opens phase 2.
-    fakeAi.behavior.assessment = "strong"
-    expect((await passPhase(call, runId, "p1")).detail.state).toBe("passed")
     expect((await submit(call, runId, "p2")).status).toBe(200)
   })
 
@@ -163,7 +158,7 @@ describe("the Proof Engine, end to end", () => {
   it("enforces the phase order on the server", async () => {
     const early = await submit(call, runId, "p2")
     expect(early.status).toBe(409)
-    expect(String(early.json.error)).toMatch(/locked until you pass “Plan the approach”/)
+    expect(String(early.json.error)).toMatch(/opens once you submit “Plan the approach”/)
     expect(submissionsOfRun()).toEqual([])
   })
 
@@ -183,108 +178,137 @@ describe("the Proof Engine, end to end", () => {
   })
 })
 
-describe("strict sequential progression (through the API)", () => {
+describe("sequential submission unlock (through the API)", () => {
   interface PhaseView { key: string; available: boolean; state: string; blockedBy: { key: string; title: string }[] }
-  const phasesOf = async () => ((await call("GET", `/work/${runId}`, SARA)).json.run as { phases: PhaseView[] }).phases
-  const openKeys = async () => (await phasesOf()).filter((p) => p.available).map((p) => p.key)
+  const phasesOf = async (run = runId, actor = SARA) => ((await call("GET", `/work/${run}`, actor)).json.run as { phases: PhaseView[] }).phases
+  const openKeys = async (run = runId, actor = SARA) => (await phasesOf(run, actor)).filter((p) => p.available).map((p) => p.key)
   const state = (key: string) => String(rows("SELECT rp.state FROM run_phases rp JOIN phases p ON p.id = rp.phase_id WHERE rp.run_id = ? AND p.key = ?", runId, key)[0].state)
-  const subsOf = (key: string) => rows("SELECT s.id FROM submissions s JOIN run_phases rp ON rp.id = s.run_phase_id JOIN phases p ON p.id = rp.phase_id WHERE rp.run_id = ? AND p.key = ?", runId, key)
+  const subsOf = (key: string) => rows("SELECT s.id, s.stage FROM submissions s JOIN run_phases rp ON rp.id = s.run_phase_id JOIN phases p ON p.id = rp.phase_id WHERE rp.run_id = ? AND p.key = ?", runId, key)
+  const COMMENTS_ONLY = { code: "# nothing here yet\n\n# TODO\n" } // saved, but rejected by the deterministic checks
 
-  it("phase 1 is open at the start; phase 2 waits for phase 1 and phase 3 waits for phase 2 — each to PASS", async () => {
+  it("1. phase 1 is open at the start and phase 3 is locked before phase 2 has a recorded submission", async () => {
     expect(await openKeys()).toEqual(["p1"])
-    expect((await phasesOf()).find((p) => p.key === "p3")!.blockedBy.map((b) => b.key)).toEqual(["p1", "p2"])
-    await passPhase(call, runId, "p1")
+    await submit(call, runId, "p1")
     expect(await openKeys()).toEqual(["p1", "p2"])
-    await passPhase(call, runId, "p2")
-    expect(await openKeys()).toEqual(["p1", "p2", "p3"])
-  })
-
-  it("starting, submitting and being interviewed on phase 2 does not open phase 3", async () => {
-    await passPhase(call, runId, "p1")
+    const p3 = (await phasesOf()).find((p) => p.key === "p3")!
+    expect(p3).toMatchObject({ available: false, blockedBy: [{ key: "p2", title: "Build the core" }] })
+    // Starting phase 2, or an attempt the checks reject, is not a recorded submission.
     expect((await call("POST", `/work/${runId}/phases/p2/start`, SARA)).status).toBe(200)
     expect(await openKeys()).toEqual(["p1", "p2"])
-    const out = await submit(call, runId, "p2")
-    expect(out.json.state).toBe("interview_in_progress")
-    await call("POST", `/submissions/${String(out.json.submissionId)}/answer`, SARA, { answer: GOOD_ANSWER })
+    expect((await submit(call, runId, "p2", COMMENTS_ONLY)).json).toMatchObject({ rejected: true, state: "revision_needed" })
+    expect(subsOf("p2")).toEqual([expect.objectContaining({ stage: "rejected" })])
     expect(await openKeys()).toEqual(["p1", "p2"])
-    expect((await submit(call, runId, "p3")).status).toBe(409)
+    // An attempt that is refused before it is saved leaves no row and unlocks nothing either.
+    expect((await submit(call, runId, "p2", {})).status).toBe(400)
+    expect(await openKeys()).toEqual(["p1", "p2"])
   })
 
-  it("a failed assessment does not open the next phase; a later passing attempt does", async () => {
-    await passPhase(call, runId, "p1")
+  it("2. recording a phase 2 submission opens phase 3 while its review and interview are still pending", async () => {
+    await submit(call, runId, "p1")
+    const out = await submit(call, runId, "p2")
+    expect(out.json.state).toBe("interview_in_progress") // nothing assessed yet
+    expect(subsOf("p2")).toEqual([expect.objectContaining({ stage: "interviewing" })])
+    expect(await openKeys()).toEqual(["p1", "p2", "p3"])
+    expect((await submit(call, runId, "p3")).status).toBe(200)
+  })
+
+  it("3. a failed phase 2 assessment does not relock phase 3", async () => {
+    await submit(call, runId, "p1")
     fakeAi.behavior.assessment = "weak"
     expect((await passPhase(call, runId, "p2")).detail.state).toBe("failed")
-    expect(await openKeys()).toEqual(["p1", "p2"])
-    fakeAi.behavior.assessment = "strong"
-    expect((await passPhase(call, runId, "p2")).detail.state).toBe("passed")
     expect(await openKeys()).toEqual(["p1", "p2", "p3"])
+    // …and a later rejected resubmission of phase 2 does not take it away: the earlier valid one is still recorded.
+    expect((await submit(call, runId, "p2", COMMENTS_ONLY)).json.state).toBe("revision_needed")
+    expect(await openKeys()).toEqual(["p1", "p2", "p3"])
+    expect((await submit(call, runId, "p3")).status).toBe(200)
   })
 
-  it("an unavailable assessment — and a retry that fails again — does not open the next phase; a retry that passes does", async () => {
-    await passPhase(call, runId, "p1")
-    fakeAi.behavior.fail = ["assessment"]
-    const out = await submit(call, runId, "p2")
+  it("4. an unavailable phase 2 assessment (review or assessment outage, or a failed retry) does not relock phase 3", async () => {
+    await submit(call, runId, "p1")
+    fakeAi.behavior.fail = ["submission_review"]
+    const out = await submit(call, runId, "p2") // saved, then the review fails
     const id = String(out.json.submissionId)
-    await finishInterview(call, id)
-    expect(state("p2")).toBe("assessment_unavailable")
-    expect(await openKeys()).toEqual(["p1", "p2"])
-
-    expect((await call("POST", `/submissions/${id}/retry`, SARA)).json.state).toBe("assessment_unavailable") // still down
-    expect(await openKeys()).toEqual(["p1", "p2"])
-
-    fakeAi.behavior.fail = []
-    expect((await call("POST", `/submissions/${id}/retry`, SARA)).json.state).toBe("passed")
+    expect(out.json.state).toBe("assessment_unavailable")
     expect(await openKeys()).toEqual(["p1", "p2", "p3"])
+    expect((await call("POST", `/submissions/${id}/retry`, SARA)).json.state).toBe("assessment_unavailable") // still down
+    expect(await openKeys()).toEqual(["p1", "p2", "p3"])
+    // Nothing was decided and nothing was invented.
+    expect(rows("SELECT id FROM assessments WHERE submission_id = ?", id)).toEqual([])
+    expect(state("p2")).toBe("assessment_unavailable")
   })
 
-  it("rejects direct API attempts to start or submit a locked phase, whatever the payload says, and changes nothing", async () => {
-    await passPhase(call, runId, "p1") // p2 open, p3 locked
+  it("5. direct API requests cannot skip submitting the previous phase, whatever the payload says, and change nothing", async () => {
+    await submit(call, runId, "p1") // p2 open, p3 locked
     const before = state("p3")
     const tries = [
       await call("POST", `/work/${runId}/phases/p3/start`, SARA, { force: true, state: "passed" }),
       await submit(call, runId, "p3"),
-      await submit(call, runId, "p3", { code: GOOD_CODE, language: "Python", phaseKey: "p2", available: true, state: "passed" }),
+      await submit(call, runId, "p3", { code: GOOD_CODE, language: "Python", phaseKey: "p2", available: true, submitted: true }),
     ]
     for (const t of tries) {
       expect(t.status).toBe(409)
-      expect(String(t.json.error)).toMatch(/locked until you pass “Build the core”/)
+      expect(String(t.json.error)).toMatch(/opens once you submit “Build the core”/)
     }
     expect(state("p3")).toBe(before)
     expect(subsOf("p3")).toEqual([])
-    // An unknown phase is "not found", not a way round the rule.
-    expect((await submit(call, runId, "p9")).status).toBe(404)
+    expect((await submit(call, runId, "p9")).status).toBe(404) // an unknown phase is "not found", not a way round the rule
   })
 
-  it("freezes — never resets — a phase whose earlier phase is no longer passed (work begun under the old rule)", async () => {
-    await passPhase(call, runId, "p1")
-    await passPhase(call, runId, "p2")
+  it("5b. a phase recorded under an older rule without its predecessor's submission is frozen for answers and retries, then resumes", async () => {
+    await submit(call, runId, "p1")
+    await submit(call, runId, "p2")
     const out = await submit(call, runId, "p3")
     const id = String(out.json.submissionId)
-    // Recreate a run from the old rule: phase 2 only failed, yet phase 3 was opened and is mid-interview.
-    getDb().prepare("UPDATE run_phases SET state = 'failed' WHERE run_id = ? AND phase_id = (SELECT id FROM phases WHERE key = 'p2' AND version_id = (SELECT version_id FROM runs WHERE id = ?))").run(runId, runId)
+    // Recreate an anomalous old run: phase 2's only submission was rejected, yet phase 3 has work mid-interview.
+    const setP2 = (stage: string) => getDb().prepare("UPDATE submissions SET stage = ? WHERE run_phase_id = (SELECT rp.id FROM run_phases rp JOIN phases p ON p.id = rp.phase_id WHERE rp.run_id = ? AND p.key = 'p2')").run(stage, runId)
+    setP2("rejected")
     const kept = (await detail(id)).interview!.messages.length
-
-    const view = (await phasesOf()).find((p) => p.key === "p3")!
-    expect(view.available).toBe(false)
-    expect(view.state).toBe("interview_in_progress") // its state and work are kept
+    expect((await phasesOf()).find((p) => p.key === "p3")).toMatchObject({ available: false, state: "interview_in_progress" })
     const answer = await call("POST", `/submissions/${id}/answer`, SARA, { answer: GOOD_ANSWER })
     expect(answer.status).toBe(409)
-    expect(String(answer.json.error)).toMatch(/locked until you pass “Build the core”.*saved and continues/)
+    expect(String(answer.json.error)).toMatch(/opens once you submit “Build the core”.*saved and continues/)
     expect((await call("POST", `/submissions/${id}/retry`, SARA)).status).toBe(409)
     expect((await detail(id)).canRetry).toBe(false)
-    expect((await detail(id)).interview!.messages.length).toBe(kept)
-
-    // Once phase 2 passes again, phase 3 continues exactly where it stopped.
-    getDb().prepare("UPDATE run_phases SET state = 'passed' WHERE run_id = ? AND phase_id = (SELECT id FROM phases WHERE key = 'p2' AND version_id = (SELECT version_id FROM runs WHERE id = ?))").run(runId, runId)
+    expect((await detail(id)).interview!.messages.length).toBe(kept) // frozen, not reset
+    setP2("interviewing")
     expect((await call("POST", `/submissions/${id}/answer`, SARA, { answer: GOOD_ANSWER })).status).toBe(200)
   })
 
-  it("cannot be completed while any phase is unpassed — even with every phase open", async () => {
-    await passPhase(call, runId, "p1")
-    await passPhase(call, runId, "p2")
-    expect((await call("POST", `/work/${runId}/complete`, SARA, {})).status).toBe(409) // p3 open but not passed
-    await passPhase(call, runId, "p3")
+  it("6. opening phases never completes the challenge: every phase open and submitted, but completion still needs every pass", async () => {
+    fakeAi.behavior.assessment = "weak"
+    for (const k of ["p1", "p2", "p3"]) await passPhase(call, runId, k) // all submitted, all not passed
+    expect(await openKeys()).toEqual(["p1", "p2", "p3"])
+    const run = (await call("GET", `/work/${runId}`, SARA)).json.run as { progress: { passed: number; complete: boolean }; canComplete: boolean; status: string }
+    expect(run).toMatchObject({ progress: { passed: 0, complete: false }, canComplete: false, status: "in_progress" })
+    expect((await call("POST", `/work/${runId}/complete`, SARA, {})).status).toBe(409)
+    fakeAi.behavior.assessment = "strong"
+    for (const k of ["p1", "p2", "p3"]) await passPhase(call, runId, k)
     expect((await call("POST", `/work/${runId}/complete`, SARA, {})).status).toBe(200)
+  })
+
+  it("7. holds for every phase of a five-phase challenge", async () => {
+    // A company edits a generated challenge to five phases (within the 3–5 rule), reviews and publishes it.
+    const created = String((await call("POST", "/company/challenges", NAHLA, BRIEF)).json.id)
+    await call("POST", `/company/challenges/${created}/generate`, NAHLA, {})
+    const spec = ((await call("GET", `/company/challenges/${created}`, NAHLA)).json.challenge as { current: { spec: { phases: Record<string, unknown>[] } } }).current.spec
+    while (spec.phases.length < 5) {
+      const k = spec.phases.length + 1
+      spec.phases.push({ ...structuredClone(spec.phases[spec.phases.length - 1]), key: `p${k}`, title: `Extend it, part ${k}`, dependsOn: [`p${k - 1}`] })
+    }
+    expect((await call("PUT", `/company/challenges/${created}/version`, NAHLA, spec)).status).toBe(200)
+    await call("POST", `/company/challenges/${created}/review`, NAHLA)
+    expect((await call("POST", `/company/challenges/${created}/publish`, NAHLA, { acknowledgeEvaluationUse: true })).status).toBe(200)
+    const five = await startRun(call, created, OMAR)
+
+    const keys = ["p1", "p2", "p3", "p4", "p5"]
+    for (let n = 0; n < keys.length; n++) {
+      expect(await openKeys(five, OMAR), `after ${n} submissions`).toEqual(keys.slice(0, n + 1))
+      if (n + 1 < keys.length) expect((await submit(call, five, keys[n + 1], undefined, OMAR)).status, `${keys[n + 1]} before ${keys[n]}`).toBe(409)
+      // Each phase is only submitted — every assessment is still pending — and that alone opens the next one.
+      expect((await submit(call, five, keys[n], undefined, OMAR)).json.state).toBe("interview_in_progress")
+    }
+    expect(await openKeys(five, OMAR)).toEqual(keys)
+    expect(rows("SELECT a.id FROM assessments a JOIN submissions s ON s.id = a.submission_id JOIN run_phases rp ON rp.id = s.run_phase_id WHERE rp.run_id = ?", five)).toEqual([])
   })
 })
 

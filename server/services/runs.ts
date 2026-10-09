@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite"
 import { OPEN_STATUSES } from "../domain/lifecycle.ts"
-import { availability, completion, PHASE_STATE_LABELS, transition } from "../domain/phases.ts"
+import { availability, completion, PHASE_STATE_LABELS, transition, VALID_SUBMISSION_STAGES } from "../domain/phases.ts"
 import type { PhaseEvent, PhaseNode, PhaseState } from "../domain/phases.ts"
 import { publicPhase } from "../domain/spec.ts"
 import { ApiError } from "../http.ts"
@@ -125,6 +125,18 @@ export function phaseNodes(version: StoredVersion): PhaseNode[] {
   return version.spec.phases.map((p, i) => ({ id: version.phaseIds[p.key], key: p.key, position: i + 1, dependsOn: p.dependsOn }))
 }
 
+/** Ids of the run's phases that have a valid recorded submission (see VALID_SUBMISSION_STAGES) — what unlocks the next phase. */
+export function submittedPhaseIds(db: DatabaseSync, runId: string): Set<string> {
+  const counted: readonly string[] = VALID_SUBMISSION_STAGES
+  const rows = all(
+    db,
+    `SELECT DISTINCT rp.phase_id FROM submissions s JOIN run_phases rp ON rp.id = s.run_phase_id
+     WHERE rp.run_id = ? AND s.stage IN (${counted.map(() => "?").join(", ")})`,
+    runId, ...counted,
+  )
+  return new Set(rows.map((r) => String(r.phase_id)))
+}
+
 export function statesOf(rows: RunPhaseRow[]): Map<string, PhaseState> {
   return new Map(rows.map((r) => [r.phaseId, r.state]))
 }
@@ -176,7 +188,7 @@ export function runView(db: DatabaseSync, run: RunRow) {
   const rows = runPhaseRows(db, run.id)
   const states = statesOf(rows)
   const nodes = phaseNodes(version)
-  const avail = availability(nodes, states)
+  const avail = availability(nodes, submittedPhaseIds(db, run.id))
   const done = completion(nodes, states)
   const titleByKey = new Map(version.spec.phases.map((p) => [p.key, p.title]))
   const challenge = run.challengeId ? challengeById(db, run.challengeId) : null

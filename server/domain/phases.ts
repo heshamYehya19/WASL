@@ -31,28 +31,37 @@ export interface PhaseNode {
 
 export interface Availability {
   available: boolean
-  /** Keys of the earlier phases that have not passed yet, in order. */
+  /** Keys of the earlier phases that have no valid recorded submission yet, in order. */
   blockedBy: string[]
 }
 
 /**
- * Strictly sequential: phase N opens only when EVERY earlier phase (by position) has a recorded pass. Every phase is required,
- * and only an assessment can pass a phase, so starting, submitting, finishing an interview, a failed result, an unavailable
- * assessment or a retry in progress never opens the next phase. (Intentional change: a failed phase used to count as
- * "concluded" and open the phases after it.)
- *
- * A phase that is no longer eligible — work begun under the earlier rule while an earlier phase had not passed — is frozen,
- * not reset: its submissions, interview and any recorded result are kept, but it takes no new start, submission, answer or
- * retry until every earlier phase has passed, and then it continues from where it stopped. (A pass is final, so an eligible
- * phase cannot otherwise become ineligible.) Completion of the whole run is the separate rule in `completion`.
+ * What counts as a "valid recorded submission": a row in `submissions` that was SAVED and passed the deterministic checks —
+ * its stage is one of these. A "rejected" submission (empty, comment-only, a copy of the task, an unreadable repository) is
+ * kept as history but is not valid work; an attempt refused before saving (bad input, a locked or busy phase) has no row at
+ * all. A valid submission stays valid whatever its review or assessment later says (pending, failed or unavailable).
  */
-export function availability(phases: PhaseNode[], states: ReadonlyMap<string, PhaseState>): Map<string, Availability> {
+export const VALID_SUBMISSION_STAGES = ["checked", "reviewed", "interviewing", "assessed"] as const
+
+/**
+ * Sequential SUBMISSION unlock: phase 1 is open from the start, and phase N opens once phase N−1 — and therefore every
+ * earlier phase — has a valid recorded submission. Passing is NOT required: a pending, failed or unavailable assessment of an
+ * earlier phase does not lock the phases after it. A phase's own state never matters here, and `dependsOn` only describes
+ * the work. Submissions are never removed (except with the whole run), so once a phase opens it stays open.
+ *
+ * Every earlier phase is checked (not only N−1) so that a run recorded under an older rule, where a later phase may have
+ * work while an earlier one has none, can never be used to skip a phase. Such a phase is frozen, not reset: its work and
+ * results are kept, and it takes no new start, submission, answer or retry until the earlier phases have been submitted.
+ *
+ * Opening a phase says nothing about completing the challenge: that is the separate, stricter rule in `completion`.
+ */
+export function availability(phases: PhaseNode[], submitted: ReadonlySet<string>): Map<string, Availability> {
   const ordered = [...phases].sort((a, b) => a.position - b.position)
   const out = new Map<string, Availability>()
-  const notPassedYet: string[] = []
+  const notSubmittedYet: string[] = []
   for (const phase of ordered) {
-    out.set(phase.id, { available: notPassedYet.length === 0, blockedBy: [...notPassedYet] })
-    if (states.get(phase.id) !== "passed") notPassedYet.push(phase.key)
+    out.set(phase.id, { available: notSubmittedYet.length === 0, blockedBy: [...notSubmittedYet] })
+    if (!submitted.has(phase.id)) notSubmittedYet.push(phase.key)
   }
   return out
 }

@@ -18,8 +18,9 @@ export default function HowItWorks() {
 
       <h2 className="text-lg font-bold text-ink-950">The phases</h2>
       <p className="mt-2 text-ink-600">
-        A challenge is split into ordered phases, taken one at a time. A phase opens only after every phase before it has <em>passed</em>; if a phase isn't passed yet,
-        you get feedback and an improvement plan, and can submit it again before moving on. The whole solution can be submitted as complete only when every phase has passed.
+        A challenge is split into ordered phases. A phase opens once you have <em>submitted</em> the one before it — it doesn't have to pass first, so you can keep
+        going while a phase is being reviewed, or after one isn't passed yet. If a phase isn't passed yet, you get feedback and an improvement plan and can submit it
+        again at any time. The whole solution can be submitted as complete only when every phase has passed.
       </p>
 
       <h2 className="mt-10 text-lg font-bold text-ink-950">The Proof Engine</h2>

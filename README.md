@@ -27,9 +27,15 @@ If the AI is unavailable or its output can't be validated, the phase becomes **a
 
 ### Phases
 
-Phases are strictly sequential: phase N opens only when **every** earlier phase has a recorded **pass**. Starting, submitting, finishing an interview, a failed result, an unavailable assessment or a pending retry never opens the next phase. The server enforces this on every candidate action — start, submit, interview answer and retry (`server/domain/phases.ts`, `server/services/pipeline.ts`). A phase whose earlier phase has not passed (work begun under the previous rule) is frozen, not reset: its work and results are kept, and it continues once the earlier phases pass. A phase's "builds on" (`dependsOn`) describes the work; it does not decide when the phase opens. The whole solution can be submitted as complete only when **every** phase has passed. Every attempt is kept.
+Phases unlock by **submission**, in order. Phase 1 is open from the start; phase N opens once phase N−1 has a **valid recorded submission** — passing is **not** required. A pending, failed or unavailable assessment of phase N−1 does not lock (or relock) phase N.
 
-> Changed deliberately: a failed phase used to count as "finished" and opened the phases after it. It no longer does.
+A *valid recorded submission* is a saved row in `submissions` whose stage is `checked`, `reviewed`, `interviewing` or `assessed` (`VALID_SUBMISSION_STAGES` in `server/domain/phases.ts`): it was stored and passed the deterministic checks. An attempt refused before saving (bad input, a locked or busy phase) leaves no row, and a saved attempt the checks reject (empty, comment-only, a copy of the task, an unreadable repository — shown as "Revision needed") is kept as history but does not unlock anything. Submissions are never removed, so an opened phase stays open.
+
+The server enforces this on every candidate action — start, submit, interview answer and assessment retry (`server/services/pipeline.ts`) — so no endpoint or payload can skip a phase. Every earlier phase must have a valid submission, so a run recorded under an older rule (a later phase with work while an earlier one has none) is frozen, not reset: its work and results are kept and it continues once the earlier phase is submitted. A phase's "builds on" (`dependsOn`) describes the work; it does not decide when the phase opens.
+
+Unlocking is not completion: the whole solution can be submitted as complete only when **every** phase has **passed**. Every attempt is kept.
+
+> History: originally a phase opened when its `dependsOn` phases had a decision (passed or failed); briefly (commit `74b4cd1`) every earlier phase had to pass. Both are superseded by submission-based unlocking.
 
 ## Quick start
 

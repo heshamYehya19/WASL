@@ -57,7 +57,8 @@ function Sharing({ run, onChanged }: { run: RunView; onChanged: () => void }) {
 }
 
 function PhaseRow({ runId, phase, index, runDone }: { runId: string; phase: RunPhaseView; index: number; runDone: boolean }) {
-  // Phases open strictly in order: a phase is locked until every phase before it has passed, whatever its own state.
+  // Phases open in order: a phase is locked until the one before it has a submission accepted for review (passing isn't
+  // required). The server decides; `available` mirrors it, whatever this phase's own state.
   const locked = !phase.available
   const ratings = phase.latestSubmission?.assessment?.ratings
   return (
@@ -73,11 +74,11 @@ function PhaseRow({ runId, phase, index, runDone }: { runId: string; phase: RunP
             <p className="mt-1.5 text-sm text-ink-600">{phase.objective}</p>
             {locked && (
               <p className="mt-2 text-xs text-ink-500">
-                Opens once you pass {phase.blockedBy.map((b) => `“${b.title}”`).join(" and ")}. Phases open one at a time, each after every phase before it has passed.
-                {phase.state !== "not_started" && " Your work here is saved and continues once they have."}
+                Opens once you submit {phase.blockedBy.map((b) => `“${b.title}”`).join(" and ")}. Phases open in order: each opens when the one before it has a submission accepted for review — it doesn't have to pass first.
+                {phase.state !== "not_started" && " Your work here is saved and continues once you have."}
               </p>
             )}
-            {!locked && phase.state === "failed" && <p className="mt-2 text-xs text-ink-600">Not passed yet — the feedback is on the phase page, and you can submit again whenever you're ready. The next phase opens once this one passes.</p>}
+            {!locked && phase.state === "failed" && <p className="mt-2 text-xs text-ink-600">Not passed yet — the feedback is on the phase page, and you can submit again whenever you're ready. You can carry on with the next phase meanwhile; the challenge is complete only when every phase has passed.</p>}
             {ratings && (
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-ink-600">
                 <span className="flex items-center gap-2">Correctness <RatingPips rating={ratings.correctness} /></span>

@@ -71,8 +71,15 @@ submission, one interview per submission, indexes on every foreign key used in a
 States: `not_started`, `in_progress`, `submitted`, `under_review`, `interview_in_progress`, `passed`, `failed`,
 `revision_needed`, `assessment_unavailable`.
 
-* **Availability.** A phase opens when every phase it `depends_on` has a *concluded* assessment — `passed` **or**
-  `failed`. A failed phase therefore never blocks later eligible phases.
+* **Availability (current rule: sequential submission unlock).** Phase 1 is open from the start; phase N opens once
+  phase N−1 — and so every earlier phase — has a *valid recorded submission*: a saved `submissions` row whose stage is
+  `checked`, `reviewed`, `interviewing` or `assessed` (`VALID_SUBMISSION_STAGES`). Passing is not required, and a
+  pending, failed or unavailable assessment never locks the next phase. A `rejected` submission (failed the
+  deterministic checks) or an attempt refused before saving does not unlock anything. `depends_on` describes the work
+  only. The server checks this on start, submit, interview answer and retry; a phase recorded under an older rule
+  without its predecessor's submission is frozen (kept, not reset) until that submission exists.
+  *Superseded:* the original rule opened a phase when its `depends_on` phases had a concluded (passed or failed)
+  assessment; a short-lived rule in commit `74b4cd1` required every earlier phase to pass.
 * **Completion.** The complete solution can be submitted only when **every** required phase is `passed`. Enforced in
   the domain layer and re-checked by the API; a client cannot bypass it.
 * **History.** Each attempt is its own `submission` row. A resubmission never overwrites an earlier attempt, its

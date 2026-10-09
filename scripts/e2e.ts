@@ -269,8 +269,8 @@ async function main() {
       workUrl = page.url()
       await page.getByRole("heading", { name: "Ticket routing challenge" }).waitFor()
     })
-    await step("later phases are locked until every earlier one has passed", async () => {
-      await page.getByText(/Opens once you pass/).first().waitFor()
+    await step("later phases are locked until the one before has been submitted", async () => {
+      await page.getByText(/Opens once you submit/).first().waitFor()
       must((await page.getByRole("link", { name: "Start" }).count()) === 1, "only the first phase can be started")
     })
     await step("submit phase 1 and be interviewed before any decision", async () => {
@@ -341,9 +341,10 @@ async function main() {
       must((await page.getByText(/\bfailed\b/i).count()) === 0, "the word 'failed' should not be used about the person")
       // A phase that has not passed keeps the next one locked (strict sequential progression).
       await page.goto(page.url().replace(/\/p\d+(\?.*)?$/, "")) // this run's overview
-      await page.getByText(/The next phase opens once this one passes/).waitFor()
-      await page.getByText(/Opens once you pass/).first().waitFor()
-      must((await page.getByRole("link", { name: "Start" }).count()) === 0, "no later phase may be startable while phase 1 has not passed")
+      // Submission-based unlocking: phase 1 was submitted (and not passed), so phase 2 is open; phase 3 waits for phase 2.
+      await page.getByText(/You can carry on with the next phase meanwhile/).waitFor()
+      must((await page.getByRole("link", { name: "Start" }).count()) === 1, "exactly the next phase should be startable after phase 1 was submitted")
+      await page.getByText(/Opens once you submit/).first().waitFor()
       await fetch(`${mock.url}/__behavior`, { method: "POST", body: JSON.stringify({ assessment: "strong" }) })
     })
     await step("the Improve page turns the gap into a plan with checked resources, a lesson and an exercise", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { availability, canTransition, completion, IllegalTransition, isConcluded, PHASE_STATES, transition, validatePhaseGraph } from "../domain/phases.ts"
+import { availability, canTransition, completion, IllegalTransition, PHASE_STATES, transition, validatePhaseGraph, VALID_SUBMISSION_STAGES } from "../domain/phases.ts"
 import type { PhaseNode, PhaseState } from "../domain/phases.ts"
 import { decide, MIN_ANSWERED_QUESTIONS, PASS_RULE } from "../domain/decision.ts"
 import { canChallengeTransition, challengeTransition, IllegalChallengeTransition } from "../domain/lifecycle.ts"
@@ -10,55 +10,61 @@ const phases: PhaseNode[] = [
   { id: "a", key: "p1", position: 1, dependsOn: [] },
   { id: "b", key: "p2", position: 2, dependsOn: ["p1"] },
   { id: "c", key: "p3", position: 3, dependsOn: ["p2"] },
-  { id: "d", key: "p4", position: 4, dependsOn: ["p1"] }, // "builds on" p1 only — but still opens strictly after p1–p3 pass
+  { id: "d", key: "p4", position: 4, dependsOn: ["p1"] }, // "builds on" p1 only — but still opens only in order
   { id: "e", key: "p5", position: 5, dependsOn: [] },
 ]
 const states = (s: Record<string, PhaseState>) => new Map(Object.entries(s))
-const open = (s: Record<string, PhaseState>) => [...availability(phases, states(s))].filter(([, v]) => v.available).map(([id]) => id)
+/** Phase ids with a valid recorded submission. */
+const submitted = (...ids: string[]) => new Set(ids)
+const open = (...ids: string[]) => [...availability(phases, submitted(...ids))].filter(([, v]) => v.available).map(([id]) => id)
 
-// Strict sequential progression (an intentional product change: a FAILED phase used to count as finished and open later phases).
+// Sequential SUBMISSION unlock: phase N opens once phase N−1 has a valid recorded submission. Passing is not required.
 describe("which phases are open", () => {
-  it("opens only phase 1 before anything is done", () => {
-    const a = availability(phases, states({}))
-    expect(open({})).toEqual(["a"])
+  it("opens only phase 1 before anything is submitted", () => {
+    const a = availability(phases, submitted())
+    expect(open()).toEqual(["a"])
     expect(a.get("b")!.blockedBy).toEqual(["p1"])
     expect(a.get("e")!.blockedBy).toEqual(["p1", "p2", "p3", "p4"])
   })
 
-  it("opens each phase only when every phase before it has passed — at every step of a five-phase challenge", () => {
-    expect(open({ a: "passed" })).toEqual(["a", "b"])
-    expect(open({ a: "passed", b: "passed" })).toEqual(["a", "b", "c"])
-    expect(open({ a: "passed", b: "passed", c: "passed" })).toEqual(["a", "b", "c", "d"])
-    expect(open({ a: "passed", b: "passed", c: "passed", d: "passed" })).toEqual(["a", "b", "c", "d", "e"])
+  it("opens each phase once the one before it has a recorded submission — at every step of a five-phase challenge", () => {
+    expect(open("a")).toEqual(["a", "b"])
+    expect(open("a", "b")).toEqual(["a", "b", "c"])
+    expect(open("a", "b", "c")).toEqual(["a", "b", "c", "d"])
+    expect(open("a", "b", "c", "d")).toEqual(["a", "b", "c", "d", "e"])
+    expect(open("a", "b", "c", "d", "e")).toEqual(["a", "b", "c", "d", "e"])
+    // Phase 3 is locked before phase 2 has a submission, whatever else has happened.
+    expect(availability(phases, submitted("a")).get("c")).toEqual({ available: false, blockedBy: ["p2"] })
   })
 
-  it("nothing short of a pass opens the next phase: not starting, submitting, reviewing, an interview, a fail, an unavailable assessment or a revision request", () => {
-    for (const s of PHASE_STATES.filter((x) => x !== "passed")) {
-      expect(open({ a: "passed", b: s }), s).toEqual(["a", "b"]) // phase 3 stays locked while phase 2 is anything but passed
-      expect(availability(phases, states({ a: "passed", b: s })).get("c")!.blockedBy, s).toEqual(["p2"])
-    }
-    // "failed" is concluded (the engine reached a decision), but concluded is not passed.
-    expect(isConcluded("failed")).toBe(true)
-    expect(open({ a: "failed" })).toEqual(["a"])
+  it("is decided by submissions alone — never by a phase's state or assessment (pending, failed, unavailable or passed)", () => {
+    // The function does not even take states: the same submissions give the same answer whatever the assessments said.
+    expect(availability.length).toBe(2)
+    expect(open("a", "b")).toEqual(["a", "b", "c"])
+  })
+
+  it("counts only saved submissions that passed the deterministic checks — never a rejected one or an unsaved default", () => {
+    expect([...VALID_SUBMISSION_STAGES]).toEqual(["checked", "reviewed", "interviewing", "assessed"])
+    expect(VALID_SUBMISSION_STAGES).not.toContain("rejected")
+    expect(VALID_SUBMISSION_STAGES).not.toContain("received")
   })
 
   it("does not let a dependency graph skip ahead: a phase that only 'builds on' phase 1 still waits for phases 2 and 3", () => {
-    const a = availability(phases, states({ a: "passed", b: "failed" }))
-    expect(a.get("d")!.available).toBe(false)
-    expect(a.get("d")!.blockedBy).toEqual(["p2", "p3"])
-    expect(a.get("c")!.available).toBe(false)
+    const a = availability(phases, submitted("a", "b"))
+    expect(a.get("d")).toEqual({ available: false, blockedBy: ["p3"] })
   })
 
-  it("locks a later phase again if an earlier one is not passed — e.g. work begun under the old rule (it is frozen, not reset)", () => {
-    // Phase 3 was started while phase 2 had only failed: phase 3 keeps its state but is not available.
-    const a = availability(phases, states({ a: "passed", b: "failed", c: "interview_in_progress" }))
+  it("never lets a later submission stand in for a missing earlier one (a run recorded under an older rule is frozen, not skipped)", () => {
+    // Phase 3 has work but phase 2 has none: phase 3 and everything after it stay locked until phase 2 is submitted.
+    const a = availability(phases, submitted("a", "c"))
     expect(a.get("c")!.available).toBe(false)
-    expect(availability(phases, states({ a: "passed", b: "passed", c: "interview_in_progress" })).get("c")!.available).toBe(true)
+    expect(a.get("d")).toEqual({ available: false, blockedBy: ["p2"] })
+    expect(open("a", "b", "c")).toContain("d")
   })
 
   it("orders by position, not by the order the phases are listed in", () => {
     const shuffled = [phases[2], phases[0], phases[4], phases[1], phases[3]]
-    expect([...availability(shuffled, states({ a: "passed" }))].filter(([, v]) => v.available).map(([id]) => id).sort()).toEqual(["a", "b"])
+    expect([...availability(shuffled, submitted("a"))].filter(([, v]) => v.available).map(([id]) => id).sort()).toEqual(["a", "b"])
   })
 })
 
@@ -80,10 +86,11 @@ describe("when the whole solution is complete", () => {
     expect(completion([], states({})).complete).toBe(false)
   })
 
-  it("is about completion, not eligibility: the last phase can be open while the run is still incomplete", () => {
-    const s = states({ a: "passed", b: "passed", c: "passed", d: "passed", e: "in_progress" })
-    expect(availability(phases, s).get("e")!.available).toBe(true)
-    expect(completion(phases, s).complete).toBe(false)
+  it("is about completion, not eligibility: every phase can be open while the run is far from complete", () => {
+    // All five phases submitted (so all open), but only one has passed.
+    expect(open("a", "b", "c", "d", "e")).toHaveLength(5)
+    const s = states({ a: "passed", b: "failed", c: "assessment_unavailable", d: "interview_in_progress", e: "under_review" })
+    expect(completion(phases, s)).toMatchObject({ complete: false, passed: 1 })
     expect(completion(phases, states(all)).complete).toBe(true)
   })
 })
