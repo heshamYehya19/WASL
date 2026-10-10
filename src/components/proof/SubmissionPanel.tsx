@@ -5,10 +5,15 @@ import { Button, Field, inputClass, Notice, Spinner } from "../ui/kit"
 import { RatingPips } from "../ui/ListKit"
 import { CodeBlock } from "./CodeBlock"
 import { formatDate } from "../../lib/format"
+import { feedbackForError, feedbackForResponse, singleFlight } from "../../lib/retry"
+import type { RetryResponse } from "../../lib/retry"
 import type { AssessmentDetail, EvidenceCitation, InterviewMessage, StaticCheck, SubmissionDetail } from "../../types"
 
 /* One attempt, start to finish: where it is in the pipeline, what the checks and the review found, the interview, and the
    assessment. The same component serves the candidate (who can answer and retry) and the company evaluating them. */
+
+/** Provider recorded on output from the demo mock AI (server/ai/provider.ts MOCK_PROVIDER). */
+const DEMO_MOCK_PROVIDER = "mock"
 
 const STEPS = ["Submitted", "Checked", "AI review", "Interview", "Assessment"] as const
 
@@ -100,6 +105,7 @@ function Review({ review }: { review: NonNullable<SubmissionDetail["review"]> })
     <Card>
       <CardHeader title="AI review" subtitle={`Read by ${review.model || "the model"} as untrusted data. Every quoted line below was checked against the submission.`} />
       <div className="space-y-4 px-5 py-4">
+        {review.provider === DEMO_MOCK_PROVIDER && <Notice tone="demo">Demo mock AI — this review is scripted for rehearsal. No AI read the submission.</Notice>}
         {review.injectionFlagged && <Notice tone="warn">The submission contains text that tries to instruct the grader. It was ignored and did not influence anything.</Notice>}
         <p className="text-sm leading-relaxed text-ink-700">{review.summary}</p>
         {review.findings.length > 0 && (
@@ -260,7 +266,13 @@ function Assessment({ a }: { a: AssessmentDetail }) {
         action={<Badge tone={a.outcome === "passed" ? "green" : "neutral"}>{a.outcomeLabel}</Badge>}
       />
       <div className="space-y-5 px-5 py-4">
-        {a.origin === "demo_fixture" && <Notice tone="demo">Demonstration data — this assessment was not produced by the Proof Engine.</Notice>}
+        {a.origin === "demo_fixture" && (
+          <Notice tone="demo">
+            {a.provider === DEMO_MOCK_PROVIDER
+              ? "Demo mock AI — this assessment is scripted demonstration data for rehearsal, not a genuine AI assessment. The ratings were made up by the demo mock; only the rule that turned them into an outcome is real."
+              : "Demonstration data — this assessment was not produced by the Proof Engine."}
+          </Notice>
+        )}
         <p className="text-sm leading-relaxed text-ink-700">{a.summary}</p>
         <p className="rounded-xl bg-ink-100 px-4 py-2.5 text-sm text-ink-700"><strong>Why:</strong> {a.outcomeReason}</p>
         <div className="grid gap-4 lg:grid-cols-3">
@@ -302,20 +314,61 @@ function Assessment({ a }: { a: AssessmentDetail }) {
   )
 }
 
+/**
+ * Runs the pipeline again for this attempt. One request at a time (a second click while one is running starts nothing), a
+ * visible "working" state, and an explicit result: a retry that ends in "unavailable" again says so, and a refused or failed
+ * request shows the server's reason — never a silent no-op, and never a made-up outcome.
+ */
+function RetryAction({ label, onRetry }: { label: string; onRetry: () => Promise<RetryResponse> }) {
+  const [pending, setPending] = useState(false)
+  const [feedback, setFeedback] = useState<string | null>(null)
+  const latest = useRef(onRetry)
+  useEffect(() => {
+    latest.current = onRetry
+  })
+  // Created on the first click and kept, so the guard survives the re-renders a retry causes.
+  const run = useRef<(() => Promise<void>) | null>(null)
+  const click = () => {
+    run.current ??= singleFlight(async () => {
+      setPending(true)
+      setFeedback(null)
+      try {
+        setFeedback(feedbackForResponse(await latest.current()))
+      } catch (err) {
+        setFeedback(feedbackForError(err))
+      } finally {
+        setPending(false)
+      }
+    })
+    void run.current()
+  }
+  return (
+    <div className="mt-3 space-y-2">
+      <Button variant="secondary" loading={pending} onClick={click}>{label}</Button>
+      <div aria-live="polite">
+        {pending && <p className="text-xs text-ink-600">Running the Proof Engine again on this attempt. This can take up to a minute — keep this page open.</p>}
+        {!pending && feedback && (
+          <p className="rounded-lg bg-surface px-3 py-2 text-xs font-medium text-danger-600 ring-1 ring-danger-600/30" data-testid="retry-feedback">
+            {feedback}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function SubmissionPanel({
   detail,
   audience,
   onAnswer,
   onRetry,
   busy = false,
-  retrying = false,
 }: {
   detail: SubmissionDetail
   audience: "candidate" | "company"
   onAnswer?: (answer: string) => Promise<void>
-  onRetry?: () => Promise<void>
+  onRetry?: () => Promise<RetryResponse>
   busy?: boolean
-  retrying?: boolean
 }) {
   return (
     <div className="space-y-4">
@@ -340,11 +393,7 @@ export function SubmissionPanel({
         <Notice tone="danger" title="Assessment unavailable — nothing has been decided">
           {detail.pipelineMessage || "The Proof Engine couldn't finish this step."}{" "}
           {audience === "candidate" ? "Your work and answers are saved." : ""}
-          {audience === "candidate" && detail.canRetry && onRetry && (
-            <div className="mt-3">
-              <Button variant="secondary" loading={retrying} onClick={() => void onRetry()}>Try again</Button>
-            </div>
-          )}
+          {audience === "candidate" && detail.canRetry && onRetry && <RetryAction label="Try again" onRetry={onRetry} />}
         </Notice>
       )}
 
@@ -354,7 +403,7 @@ export function SubmissionPanel({
       {(detail.state === "submitted" || detail.state === "under_review") && detail.canRetry && onRetry && audience === "candidate" && (
         <Notice tone="warn" title="This stalled">
           Processing seems to have stopped (for example, the server restarted). Your work is saved.
-          <div className="mt-3"><Button variant="secondary" loading={retrying} onClick={() => void onRetry()}>Continue processing</Button></div>
+          <RetryAction label="Continue processing" onRetry={onRetry} />
         </Notice>
       )}
 

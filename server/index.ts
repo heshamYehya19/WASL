@@ -1,6 +1,7 @@
 import { createReadStream, existsSync, statSync } from "node:fs"
 import { createServer } from "node:http"
 import { extname, join, normalize, resolve } from "node:path"
+import { AI_MOCK_BLOCKED_MESSAGE, aiMockState } from "./ai/provider.ts"
 import { handleApi } from "./api.ts"
 import { DB_PATH, getDb } from "./db.ts"
 
@@ -17,6 +18,13 @@ const TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
   ".json": "application/json",
   ".woff2": "font/woff2",
+}
+
+// Demo mock AI must never run anywhere but a local rehearsal. Asked for where it isn't allowed, refuse to start rather than
+// guess: neither quietly mock nor quietly spend real provider quota.
+if (aiMockState() === "blocked") {
+  console.error(AI_MOCK_BLOCKED_MESSAGE)
+  process.exit(1)
 }
 
 if (!existsSync(join(DIST, "index.html"))) {
@@ -38,4 +46,5 @@ createServer(async (req, res) => {
   createReadStream(file).pipe(res)
 }).listen(PORT, () => {
   console.log(`WASL running at http://localhost:${PORT} (database: ${DB_PATH})`)
+  if (aiMockState() === "on") console.log("DEMO MOCK AI is ON: no AI provider will be contacted; every review, interview and assessment is scripted and labelled as demo data.")
 })

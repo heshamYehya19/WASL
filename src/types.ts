@@ -38,10 +38,13 @@ export interface ActorInfo {
 export interface SessionInfo {
   actor: ActorInfo | null
   demoMode: boolean
+  /** Demo mock AI is on: reviews, interviews and assessments are scripted, not real AI output. */
+  aiMock?: boolean
 }
 export interface Health {
   ai: { configured: boolean; provider: string | null; backup: string | null; model: string | null; keyWorks: boolean; message: string | null; lastCall: { ok: boolean; at: string; purpose: string; message?: string } | null }
   demoMode: boolean
+  aiMock?: boolean
 }
 export interface DemoAccounts {
   demoMode: boolean

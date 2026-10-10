@@ -156,7 +156,8 @@ export function evidenceItems(db: DatabaseSync, candidateId: string, viewer: Vie
         ratings: { correctness: Number(r.correctness), codeQuality: Number(r.code_quality), understanding: Number(r.understanding) },
         assessedAt: String(r.created_at),
         origin: r.origin as "ai" | "demo_fixture",
-        isDemoFixture: r.is_demo_fixture === 1,
+        // Demonstration data — a seeded run, or an assessment made by the demo mock — is always labelled as such.
+        isDemoFixture: r.is_demo_fixture === 1 || r.origin === "demo_fixture",
       })
     }
   }

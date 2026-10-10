@@ -10,10 +10,12 @@
 //   WASL_AI_PROVIDER  optional, "groq" or "gemini", to choose which is tried first
 //   WASL_AI_TIMEOUT_MS            optional per-request timeout (default 45000)
 //   WASL_GROQ_BASE_URL / WASL_GEMINI_BASE_URL   development and test only: point a provider at a local mock server
+//   WASL_AI_MOCK      "true" for local demo rehearsal only: scripted answers, no provider is ever contacted (see aiMockState)
 // With no key, AI features that need a model report that honestly; they never fall back to invented output.
 
 import { getDb } from "../db.ts"
 import { exec, newId, nowIso } from "../sql.ts"
+import { FakeAi } from "../testing/fake-ai.ts"
 import { toGeminiSchema } from "./schema.ts"
 import type { OutputSpec } from "./schema.ts"
 import { SchemaError } from "./schema.ts"
@@ -56,8 +58,37 @@ export function configuredProviders(): Provider[] {
   return ordered.filter((p): p is Provider => p !== null)
 }
 
+// ------------------------------------------------------------------ demo mock mode
+
+/** What every mock call is recorded and shown as, so its output can't be mistaken for a real model's. */
+export const MOCK_PROVIDER = "mock"
+export const MOCK_MODEL = "wasl-demo-mock"
+
+/**
+ * Demo mock mode, for rehearsing a presentation without spending provider quota. Off unless WASL_AI_MOCK is exactly "true".
+ * "blocked" when it was asked for where it must not run — production (NODE_ENV=production), demo mode switched off
+ * (WASL_DEMO_MODE=false) — or with a value that isn't "true"/"false". Blocked fails closed: the server refuses to start and
+ * every AI call fails, rather than quietly using the mock OR quietly spending real quota.
+ */
+export function aiMockState(): "off" | "on" | "blocked" {
+  const v = process.env.WASL_AI_MOCK?.trim().toLowerCase()
+  if (!v || v === "false") return "off"
+  if (v !== "true") return "blocked"
+  if (process.env.NODE_ENV === "production" || process.env.WASL_DEMO_MODE === "false") return "blocked"
+  return "on"
+}
+export const aiMockOn = () => aiMockState() === "on"
+export const AI_MOCK_BLOCKED_MESSAGE =
+  "WASL_AI_MOCK is set, but demo mock AI is only allowed for local demo rehearsal (WASL_AI_MOCK=true, demo mode on, NODE_ENV not production). Unset WASL_AI_MOCK to use the real providers."
+
+// Scripted, deterministic answers (always the "strong" behaviour).
+const mockAi = new FakeAi()
+
 export const configuredProvider = (): Provider | null => configuredProviders()[0] ?? null
-export const aiConfigured = () => configuredProviders().length > 0
+export const aiConfigured = () => {
+  const mock = aiMockState()
+  return mock === "on" ? true : mock === "blocked" ? false : configuredProviders().length > 0
+}
 
 const groqBase = () => (process.env.WASL_GROQ_BASE_URL?.trim() || DEFAULT_GROQ_BASE).replace(/\/$/, "")
 const geminiBase = () => (process.env.WASL_GEMINI_BASE_URL?.trim() || DEFAULT_GEMINI_BASE).replace(/\/$/, "")
@@ -145,8 +176,15 @@ export const MAX_RATE_LIMIT_WAIT_MS = 8_000
  * nothing produced a valid answer — callers must treat that as "unavailable", never as a result.
  */
 export async function completeJson<T>(opts: CompleteJsonOptions<T>): Promise<Completion<T>> {
-  const providers = configuredProviders()
   const started = Date.now()
+  // Checked before any provider is chosen, so in mock mode no request can reach Groq, Gemini or anything else.
+  const mock = aiMockState()
+  if (mock === "on") return completeMock(opts, started)
+  if (mock === "blocked") {
+    record(opts, { ok: false, provider: MOCK_PROVIDER, model: "", errorKind: "auth", attempts: 0, started })
+    throw new AiError("auth", AI_MOCK_BLOCKED_MESSAGE)
+  }
+  const providers = configuredProviders()
   if (providers.length === 0) {
     record(opts, { ok: false, provider: "", model: "", errorKind: "unconfigured", attempts: 0, started })
     throw new AiError("unconfigured", "No AI provider is configured on this server (set GROQ_API_KEY or GEMINI_API_KEY).")
@@ -189,6 +227,31 @@ export async function completeJson<T>(opts: CompleteJsonOptions<T>): Promise<Com
   }
   record(opts, { ok: false, provider: lastProvider.id, model: lastProvider.model, errorKind: last.kind, attempts, started })
   throw last
+}
+
+/**
+ * A scripted answer, built in-process from the same prompt a provider would get, then parsed against the same schema as a
+ * real answer — so everything downstream (grounding, evidence checks, the decision rule) runs unchanged. No network.
+ */
+function completeMock<T>(opts: CompleteJsonOptions<T>, started: number): Completion<T> {
+  const out = mockAi.respond({
+    messages: [
+      { role: "system", content: opts.system },
+      { role: "user", content: opts.user },
+    ],
+    response_format: { json_schema: { name: opts.output.name } },
+  })
+  mockAi.calls.length = 0 // the fake keeps a call log for tests; a long rehearsal shouldn't grow it
+  try {
+    const text = (out.body as { choices: { message: { content: string } }[] }).choices[0].message.content
+    const value = opts.output.field.parse(JSON.parse(text), "")
+    record(opts, { ok: true, provider: MOCK_PROVIDER, model: MOCK_MODEL, errorKind: "", attempts: 1, started })
+    return { value, provider: MOCK_PROVIDER, model: MOCK_MODEL, attempts: 1 }
+  } catch (err) {
+    const e = err instanceof SyntaxError ? new AiError("bad_json", "The demo mock returned a response that isn't valid JSON.") : toAiError(err)
+    record(opts, { ok: false, provider: MOCK_PROVIDER, model: MOCK_MODEL, errorKind: e.kind, attempts: 1, started })
+    throw e
+  }
 }
 
 function toAiError(err: unknown): AiError {
