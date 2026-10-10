@@ -14,7 +14,7 @@ model — decides whether each phase passed.
 > runs on a single SQLite database, and it has no users, customers or outcome data. Nothing in this README describes results
 > it has achieved — only what the software does.
 
-Repository: <https://github.com/heshamYehya19/WASL> (the repository, package and some technical identifiers keep the original
+Repository: <https://github.com/heshamYehya19/Qudra> (the repository, package and some technical identifiers keep the original
 project name *WASL*; the product is Qudra).
 
 ---
