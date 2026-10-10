@@ -326,6 +326,53 @@ async function main() {
       await page.getByRole("button", { name: "Try again" }).click()
       await page.getByRole("heading", { name: "Assessment", exact: true }).waitFor()
     })
+    await step("'Try again' with not enough verified evidence sends ONE retry for the same attempt, shows progress and says it is still undecided", async () => {
+      await fetch(`${mock.url}/__behavior`, { method: "POST", body: JSON.stringify({ assessment: "unsupported", fail: [] }) })
+      await page.goto(`${base}/student/practice`)
+      await page.locator("#skills").fill("Python")
+      await page.locator("#skills").press("Enter")
+      await page.getByRole("button", { name: "Create my challenge" }).click()
+      await page.waitForURL(/\/student\/work\/run-/)
+      await page.getByRole("link", { name: "Start" }).click()
+      await page.locator("#code").fill(CODE)
+      const submitted = page.waitForResponse((r) => /\/phases\/[^/]+\/submissions$/.test(r.url()) && r.request().method() === "POST")
+      await page.getByRole("button", { name: "Submit for review" }).click()
+      const submissionId = String(((await (await submitted).json()) as { submissionId: string }).submissionId)
+      const outcome = await completeInterview(page)
+      must(outcome === "unavailable", `expected "unavailable", got ${outcome}`)
+      await page.getByText(/not enough verified evidence/i).first().waitFor()
+
+      const retries: string[] = []
+      const creates: string[] = []
+      const watch = (r: { method(): string; url(): string }) => {
+        if (r.method() !== "POST") return
+        if (/\/api\/submissions\/[^/]+\/retry$/.test(r.url())) retries.push(r.url())
+        if (/\/phases\/[^/]+\/submissions$/.test(r.url())) creates.push(r.url())
+      }
+      page.on("request", watch)
+      const done = page.waitForResponse((r) => /\/retry$/.test(r.url()))
+      const button = page.getByRole("button", { name: "Try again" })
+      await button.dblclick() // an impatient double click must still send a single request
+      const res = await done
+      must(res.status() === 200, `retry answered ${res.status()}`)
+      // The click visibly did something: it says it tried again and why it still couldn't decide. No result is invented.
+      const feedback = page.getByTestId("retry-feedback")
+      await feedback.getByText(/Tried again at .+ still couldn't be completed/).waitFor()
+      must(/nothing has been decided/.test((await feedback.textContent()) ?? ""), "the feedback must say nothing was decided")
+      must(retries.length === 1, `expected exactly 1 retry request, saw ${retries.length}`)
+      must(retries[0].endsWith(`/api/submissions/${submissionId}/retry`), `retried the wrong submission: ${retries[0]}`)
+      must(creates.length === 0, "a retry must not create a new submission")
+      must((await page.getByRole("heading", { name: "Assessment", exact: true }).count()) === 0, "no assessment may be shown")
+      must((await page.getByText("Passed", { exact: true }).count()) === 0, "must not say passed")
+      must((await page.getByRole("button", { name: /^Attempt 2/ }).count()) === 0, "no second attempt may appear")
+      await page.screenshot({ path: join(SHOTS, "student-retry-still-unavailable.png"), fullPage: true })
+      page.off("request", watch)
+
+      // Once the evidence can be verified, the same button finishes the same attempt by the normal rule.
+      await fetch(`${mock.url}/__behavior`, { method: "POST", body: JSON.stringify({ assessment: "strong" }) })
+      await button.click()
+      await page.getByRole("heading", { name: "Assessment", exact: true }).waitFor()
+    })
     await step("a weak result is 'not passed yet', never a failure stamp, and opens an improvement plan", async () => {
       await fetch(`${mock.url}/__behavior`, { method: "POST", body: JSON.stringify({ assessment: "weak" }) })
       await page.goto(`${base}/student/practice`)

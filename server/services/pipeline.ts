@@ -417,7 +417,12 @@ export function canRetry(db: DatabaseSync, ctx: Ctx): boolean {
   return false
 }
 
-export async function retrySubmission(db: DatabaseSync, candidateId: string, submissionId: string): Promise<{ state: string }> {
+/**
+ * Runs the pipeline again for an existing submission, from what already exists: the work and every interview answer are kept,
+ * and no new attempt is created. The answer says where it ended and, when that is still "assessment unavailable", why — so a
+ * retry that produced the same outcome is reported as such instead of looking like nothing happened.
+ */
+export async function retrySubmission(db: DatabaseSync, candidateId: string, submissionId: string): Promise<{ state: string; message: string }> {
   const ctx = ownedContext(db, candidateId, submissionId)
   if (ctx.submission.stage === "rejected" || ctx.submission.stage === "assessed") throw new ApiError(409, "There is nothing to retry for this submission.")
   const latest = one(db, "SELECT id FROM submissions WHERE run_phase_id = ? ORDER BY attempt DESC LIMIT 1", ctx.runPhase.id)
@@ -461,6 +466,8 @@ export async function retrySubmission(db: DatabaseSync, candidateId: string, sub
       }
       // Otherwise the interviewer's question is waiting for the candidate; the state is already interview_in_progress.
     }
-    return { state: one(db, "SELECT state FROM run_phases WHERE id = ?", fresh.runPhase.id)!.state as string }
+    const state = one(db, "SELECT state FROM run_phases WHERE id = ?", fresh.runPhase.id)!.state as string
+    const message = state === "assessment_unavailable" ? String(one(db, "SELECT pipeline_error FROM submissions WHERE id = ?", submissionId)!.pipeline_error) : ""
+    return { state, message }
   })
 }

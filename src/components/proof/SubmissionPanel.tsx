@@ -5,6 +5,8 @@ import { Button, Field, inputClass, Notice, Spinner } from "../ui/kit"
 import { RatingPips } from "../ui/ListKit"
 import { CodeBlock } from "./CodeBlock"
 import { formatDate } from "../../lib/format"
+import { feedbackForError, feedbackForResponse, singleFlight } from "../../lib/retry"
+import type { RetryResponse } from "../../lib/retry"
 import type { AssessmentDetail, EvidenceCitation, InterviewMessage, StaticCheck, SubmissionDetail } from "../../types"
 
 /* One attempt, start to finish: where it is in the pipeline, what the checks and the review found, the interview, and the
@@ -302,20 +304,61 @@ function Assessment({ a }: { a: AssessmentDetail }) {
   )
 }
 
+/**
+ * Runs the pipeline again for this attempt. One request at a time (a second click while one is running starts nothing), a
+ * visible "working" state, and an explicit result: a retry that ends in "unavailable" again says so, and a refused or failed
+ * request shows the server's reason — never a silent no-op, and never a made-up outcome.
+ */
+function RetryAction({ label, onRetry }: { label: string; onRetry: () => Promise<RetryResponse> }) {
+  const [pending, setPending] = useState(false)
+  const [feedback, setFeedback] = useState<string | null>(null)
+  const latest = useRef(onRetry)
+  useEffect(() => {
+    latest.current = onRetry
+  })
+  // Created on the first click and kept, so the guard survives the re-renders a retry causes.
+  const run = useRef<(() => Promise<void>) | null>(null)
+  const click = () => {
+    run.current ??= singleFlight(async () => {
+      setPending(true)
+      setFeedback(null)
+      try {
+        setFeedback(feedbackForResponse(await latest.current()))
+      } catch (err) {
+        setFeedback(feedbackForError(err))
+      } finally {
+        setPending(false)
+      }
+    })
+    void run.current()
+  }
+  return (
+    <div className="mt-3 space-y-2">
+      <Button variant="secondary" loading={pending} onClick={click}>{label}</Button>
+      <div aria-live="polite">
+        {pending && <p className="text-xs text-ink-600">Running the Proof Engine again on this attempt. This can take up to a minute — keep this page open.</p>}
+        {!pending && feedback && (
+          <p className="rounded-lg bg-surface px-3 py-2 text-xs font-medium text-danger-600 ring-1 ring-danger-600/30" data-testid="retry-feedback">
+            {feedback}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function SubmissionPanel({
   detail,
   audience,
   onAnswer,
   onRetry,
   busy = false,
-  retrying = false,
 }: {
   detail: SubmissionDetail
   audience: "candidate" | "company"
   onAnswer?: (answer: string) => Promise<void>
-  onRetry?: () => Promise<void>
+  onRetry?: () => Promise<RetryResponse>
   busy?: boolean
-  retrying?: boolean
 }) {
   return (
     <div className="space-y-4">
@@ -340,11 +383,7 @@ export function SubmissionPanel({
         <Notice tone="danger" title="Assessment unavailable — nothing has been decided">
           {detail.pipelineMessage || "The Proof Engine couldn't finish this step."}{" "}
           {audience === "candidate" ? "Your work and answers are saved." : ""}
-          {audience === "candidate" && detail.canRetry && onRetry && (
-            <div className="mt-3">
-              <Button variant="secondary" loading={retrying} onClick={() => void onRetry()}>Try again</Button>
-            </div>
-          )}
+          {audience === "candidate" && detail.canRetry && onRetry && <RetryAction label="Try again" onRetry={onRetry} />}
         </Notice>
       )}
 
@@ -354,7 +393,7 @@ export function SubmissionPanel({
       {(detail.state === "submitted" || detail.state === "under_review") && detail.canRetry && onRetry && audience === "candidate" && (
         <Notice tone="warn" title="This stalled">
           Processing seems to have stopped (for example, the server restarted). Your work is saved.
-          <div className="mt-3"><Button variant="secondary" loading={retrying} onClick={() => void onRetry()}>Continue processing</Button></div>
+          <RetryAction label="Continue processing" onRetry={onRetry} />
         </Notice>
       )}
 

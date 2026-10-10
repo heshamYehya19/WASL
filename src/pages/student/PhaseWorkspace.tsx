@@ -9,6 +9,7 @@ import { SkillChip } from "../../components/ui/SkillChip"
 import { useApi } from "../../hooks/useApi"
 import { api, ApiRequestError } from "../../lib/api"
 import { formatDate } from "../../lib/format"
+import { postRetry } from "../../lib/retry"
 import { DIMENSION_LABELS } from "../../types"
 import type { RunPhaseView, RunView, SubmissionDetail } from "../../types"
 
@@ -115,8 +116,6 @@ export default function PhaseWorkspace() {
   // Refresh by itself only while something is being processed.
   const submission = useApi<{ submission: SubmissionDetail }>(selected ? `/submissions/${selected}` : null, { poll: (d) => (processing(d?.submission) ? 3000 : undefined) })
   const [busy, setBusy] = useState(false)
-  const [retrying, setRetrying] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
 
   const refresh = async () => {
@@ -175,7 +174,6 @@ export default function PhaseWorkspace() {
             </Notice>
           )}
           {r.status === "completed" && <Notice tone="success">This work was submitted as complete, so new submissions are closed.</Notice>}
-          {actionError && <Notice tone="danger">{actionError}</Notice>}
 
           {sub && (
             <Async state={submission}>
@@ -184,10 +182,8 @@ export default function PhaseWorkspace() {
                   detail={d}
                   audience="candidate"
                   busy={busy}
-                  retrying={retrying}
                   onAnswer={locked ? undefined : async (answer) => {
                     setBusy(true)
-                    setActionError(null)
                     try {
                       await api.post(`/submissions/${d.id}/answer`, { answer })
                       await refresh()
@@ -195,17 +191,11 @@ export default function PhaseWorkspace() {
                       setBusy(false)
                     }
                   }}
+                  // Retries THIS submission (no new attempt); the panel shows progress and how it ended, including errors.
                   onRetry={locked ? undefined : async () => {
-                    setRetrying(true)
-                    setActionError(null)
-                    try {
-                      await api.post(`/submissions/${d.id}/retry`)
-                      await refresh()
-                    } catch (err) {
-                      setActionError(err instanceof ApiRequestError ? err.message : "Something went wrong.")
-                    } finally {
-                      setRetrying(false)
-                    }
+                    const res = await postRetry(d.id)
+                    await refresh()
+                    return res
                   }}
                 />
               )}

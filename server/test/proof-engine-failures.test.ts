@@ -213,3 +213,121 @@ describe("provider fallback", () => {
     expect(String(sub.pipeline_error)).not.toContain("test-groq-key")
   })
 })
+
+describe("“Try again” after the assessment was unavailable", () => {
+  // The candidate is on the "Assessment unavailable — nothing has been decided" screen after a completed interview. Clicking
+  // "Try again" posts to /submissions/:id/retry. These pin down that the retry runs the assessment again for the SAME
+  // submission, keeps every answer, and — when it still can't decide — says so in the response instead of looking like a no-op.
+  const submissionsInPhase = () => rows("SELECT s.id FROM submissions s JOIN run_phases rp ON rp.id = s.run_phase_id WHERE rp.run_id = ?", runId).length
+  const answersOf = async (id: string) => (await detail(id)).interview!.messages.filter((m) => m.role === "candidate").length
+
+  async function unavailableAfterInterview(): Promise<string> {
+    fakeAi.behavior.assessment = "unsupported"
+    const out = await submit(call, runId, "p1")
+    const id = String(out.json.submissionId)
+    await finishInterview(call, id)
+    const d = await detail(id)
+    expect(d.state).toBe("assessment_unavailable")
+    expect(d.interview?.status).toBe("completed")
+    expect(d.canRetry).toBe(true)
+    return id
+  }
+
+  it("still not enough verified evidence: the retry really runs, keeps the work, decides nothing, and says why", async () => {
+    const id = await unavailableAfterInterview()
+    const answers = await answersOf(id)
+    const assessCalls = fakeAi.callsFor("assessment").length
+
+    const retried = await call("POST", `/submissions/${id}/retry`, SARA)
+    expect(retried.status).toBe(200)
+    expect(retried.json.state).toBe("assessment_unavailable")
+    expect(String(retried.json.message)).toMatch(/Not enough verified evidence/)
+    expect(fakeAi.callsFor("assessment").length).toBeGreaterThan(assessCalls) // the assessor was asked again — not a no-op
+
+    expect(submissionsInPhase()).toBe(1) // no new submission
+    expect(await answersOf(id)).toBe(answers) // no interview answer lost or re-asked
+    expect(assessmentCount()).toBe(0) // no invented result
+    expect((await detail(id)).canRetry).toBe(true) // and it can be tried again
+  })
+
+  it("once the evidence can be verified, the same submission is assessed by the normal rule", async () => {
+    const id = await unavailableAfterInterview()
+    const answers = await answersOf(id)
+    fakeAi.behavior.assessment = "strong"
+    const retried = await call("POST", `/submissions/${id}/retry`, SARA)
+    expect(retried.status).toBe(200)
+    expect(retried.json.state).toBe("passed")
+    expect(retried.json.message).toBe("")
+    const d = await detail(id)
+    expect(d.assessment?.outcome).toBe("passed")
+    expect(submissionsInPhase()).toBe(1)
+    expect(await answersOf(id)).toBe(answers)
+  })
+
+  it("a weak but verifiable assessment is 'not passed yet' — the retry does not turn the rule into a pass", async () => {
+    const id = await unavailableAfterInterview()
+    fakeAi.behavior.assessment = "weak"
+    const retried = await call("POST", `/submissions/${id}/retry`, SARA)
+    expect(retried.json.state).toBe("failed")
+    expect((await detail(id)).assessment?.outcome).toBe("failed")
+  })
+
+  it("invalid model output on retry: unavailable again, with an honest message, nothing recorded", async () => {
+    const id = await unavailableAfterInterview()
+    fakeAi.behavior.assessment = "strong"
+    fakeAi.behavior.garbage = ["assessment"]
+    const retried = await call("POST", `/submissions/${id}/retry`, SARA)
+    expect(retried.status).toBe(200)
+    expect(retried.json.state).toBe("assessment_unavailable")
+    expect(String(retried.json.message)).toMatch(/couldn't be validated, so no assessment was made/)
+    expect(assessmentCount()).toBe(0)
+    expect(submissionsInPhase()).toBe(1)
+  })
+
+  it("provider down on retry: unavailable again, the message says the AI service couldn't be reached", async () => {
+    const id = await unavailableAfterInterview()
+    fakeAi.behavior.fail = ["assessment"]
+    const retried = await call("POST", `/submissions/${id}/retry`, SARA)
+    expect(retried.json.state).toBe("assessment_unavailable")
+    expect(String(retried.json.message)).toMatch(/couldn't be reached or returned an error.*nothing has been assessed/)
+    expect(assessmentCount()).toBe(0)
+  })
+
+  it("rate limited on retry: unavailable again, the message says so", async () => {
+    const id = await unavailableAfterInterview()
+    llmDeps.fetch = async () => Response.json({ error: { message: "Rate limit reached." } }, { status: 429 })
+    const retried = await call("POST", `/submissions/${id}/retry`, SARA)
+    expect(retried.json.state).toBe("assessment_unavailable")
+    expect(String(retried.json.message)).toMatch(/too many requests.*nothing has been assessed/)
+    expect(assessmentCount()).toBe(0)
+  })
+
+  it("no provider configured: the retry is refused with 503 and the reason; the state and answers are untouched", async () => {
+    const id = await unavailableAfterInterview()
+    const answers = await answersOf(id)
+    noAi()
+    const retried = await call("POST", `/submissions/${id}/retry`, SARA)
+    expect(retried.status).toBe(503)
+    expect(String(retried.json.error)).toMatch(/no AI provider is configured.*Your work is saved/)
+    expect(phaseState()).toBe("assessment_unavailable")
+    expect(await answersOf(id)).toBe(answers)
+  })
+
+  it("two retries at once: only one runs, the other is refused", async () => {
+    const id = await unavailableAfterInterview()
+    // A provider that takes a moment, so the second request arrives while the first is still running.
+    const instant = llmDeps.fetch
+    llmDeps.fetch = async (url, init) => {
+      await new Promise((r) => setTimeout(r, 150))
+      return instant(url, init)
+    }
+    const [a, b] = await Promise.all([call("POST", `/submissions/${id}/retry`, SARA), call("POST", `/submissions/${id}/retry`, SARA)])
+    expect([a.status, b.status].sort()).toEqual([200, 409])
+    expect(submissionsInPhase()).toBe(1)
+  })
+
+  it("someone else's submission cannot be retried", async () => {
+    const id = await unavailableAfterInterview()
+    expect((await call("POST", `/submissions/${id}/retry`, "student:cand-layla")).status).toBe(404)
+  })
+})
