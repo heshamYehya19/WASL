@@ -1,5 +1,6 @@
-// A scriptable stand-in for a model provider, used by the integration tests and the end-to-end tests (through
-// scripts/mock-ai-server.ts). It is NOT part of the product: it exists so the real pipeline — prompts, schema validation,
+// A scriptable stand-in for a model provider, used by the integration tests, the end-to-end tests (through
+// scripts/mock-ai-server.ts) and the opt-in demo mock AI mode (WASL_AI_MOCK=true; see server/ai/provider.ts), where it answers
+// in-process and everything it produces is labelled as demonstration data. It is NOT a real assessor: it exists so the real pipeline — prompts, schema validation,
 // grounding, decision rule, state machine — can be exercised without a network or a key. It reads the same prompts a real
 // model would and answers in the same JSON shapes, with quotes taken from the actual submission, so every check the server
 // applies to a real model's output applies to this one too. Behaviours can be switched to produce the bad outputs a real

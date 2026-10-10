@@ -69,6 +69,19 @@ GROQ_API_KEY=mock WASL_GROQ_BASE_URL=http://127.0.0.1:4010/v1 npm start
 
 The mock answers in the real response shapes from the actual submission text so the real pipeline runs end to end, but what it "decides" is scripted. It is a development/test tool, never to be used for real assessment.
 
+### Rehearsing a demo without spending AI quota
+
+```powershell
+$env:WASL_AI_MOCK = "true"; npm start     # PowerShell — bash: WASL_AI_MOCK=true npm start
+```
+
+Demo mock AI answers every AI step (challenge generation, review, interview, assessment, lessons) in-process with the same
+scripted answers as above — **no request reaches Groq, Gemini or any other provider**, even if keys are set. The answers still go
+through the real schema checks, grounding and pass rule. A banner says the mode is on, and its reviews, assessments and
+challenges are labelled as demo data (assessments are stored as demonstration data). It is off unless set to exactly `true`, and
+the server refuses to start with it under `NODE_ENV=production` or `WASL_DEMO_MODE=false`. Results are always a "pass", so the
+rehearsal shows the flow, not real judgement; run `npm run db:reset` afterwards to clear demo work from the local database.
+
 ## Configuration
 
 See [.env.example](.env.example). AI: `GROQ_API_KEY` (first), `GEMINI_API_KEY` (backup), optional model/provider overrides and timeout. `GITHUB_TOKEN` raises the GitHub rate limit. `WASL_DEMO_MODE=false` disables the account switcher, demo sign-up and reset. `WASL_SEED_DEMO_DATA=false` starts empty.

@@ -28,6 +28,8 @@ interface SessionContextValue {
   /** False until the first check with the server has finished. */
   ready: boolean
   demoMode: boolean
+  /** Demo mock AI is on (local rehearsal): AI output is scripted, so the app says so everywhere. */
+  aiMock: boolean
   signInAs: (role: Role, id: string) => Promise<void>
   signOut: () => void
 }
@@ -43,12 +45,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [actor, setActorInfo] = useState<ActorInfo | null>(null)
   const [ready, setReady] = useState(false)
   const [demoMode, setDemoMode] = useState(true)
+  const [aiMock, setAiMock] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
       const info = await api.get<SessionInfo>("/session")
       setActorInfo(info.actor)
       setDemoMode(info.demoMode)
+      setAiMock(info.aiMock === true)
       // An account that no longer exists (for example after a reset) is signed out.
       if (!info.actor) {
         setStored(null)
@@ -79,6 +83,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       actor,
       ready,
       demoMode,
+      aiMock,
       signInAs: async (role, id) => {
         setActor(role, id)
         setStored({ role, id })
@@ -90,7 +95,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setActorInfo(null)
       },
     }),
-    [actor, ready, demoMode, refresh],
+    [actor, ready, demoMode, aiMock, refresh],
   )
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>

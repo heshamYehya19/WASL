@@ -505,6 +505,61 @@ async function main() {
       await page.screenshot({ path: join(SHOTS, "dark-mode.png") })
       await page.getByRole("button", { name: /Switch to light mode/ }).click()
     })
+    console.log("\nDemo mock AI (WASL_AI_MOCK=true)")
+    await step("demo mock AI runs the whole flow with no provider request, and labels everything as demo data", async () => {
+      // A second WASL whose provider settings still point at the mock provider: if mock mode leaked a single request, the
+      // mock provider would record it.
+      const before = mock.ai.calls.length
+      const mockPort = await freePort()
+      const mockBase = `http://127.0.0.1:${mockPort}`
+      const mockServer = spawn(process.execPath, ["server/index.ts"], {
+        env: {
+          ...process.env,
+          PORT: String(mockPort),
+          WASL_DB_PATH: join(dir, "wasl-mock.db"),
+          WASL_DEMO_MODE: "true",
+          WASL_SEED_DEMO_DATA: "true",
+          GROQ_API_KEY: "mock-key-for-e2e-0123456789",
+          GEMINI_API_KEY: "",
+          WASL_GROQ_BASE_URL: `${mock.url}/v1`,
+          WASL_AI_MOCK: "true",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+      mockServer.stdout?.on("data", () => undefined)
+      mockServer.stderr?.on("data", () => undefined)
+      const ctx = await browser!.newContext({ viewport: { width: 1280, height: 900 } })
+      const p = await ctx.newPage()
+      p.setDefaultTimeout(15_000)
+      currentPage = p
+      try {
+        await waitForServer(mockBase, mockServer)
+        await signInAs(p, mockBase, "Sara Nasser")
+        await p.getByTestId("ai-mock-banner").waitFor()
+        await p.goto(`${mockBase}/student/practice`)
+        await p.locator("#skills").fill("Python")
+        await p.locator("#skills").press("Enter")
+        await p.getByRole("button", { name: "Create my challenge" }).click()
+        await p.waitForURL(/\/student\/work\/run-/)
+        await p.getByText(/Demo mock — scripted, not AI-generated/).first().waitFor()
+        await p.getByRole("link", { name: "Start" }).click()
+        await p.locator("#code").fill(CODE)
+        await p.getByRole("button", { name: "Submit for review" }).click()
+        const outcome = await completeInterview(p)
+        must(outcome === "assessed", `expected an assessment, got ${outcome}`)
+        await p.getByText(/Demo mock AI — this assessment is scripted demonstration data/).waitFor()
+        await p.getByText(/Demo mock AI — this review is scripted/).waitFor()
+        must(await p.getByTestId("ai-mock-banner").isVisible(), "the mock banner must stay visible")
+        await p.screenshot({ path: join(SHOTS, "demo-mock-assessment.png"), fullPage: true })
+        const health = (await (await fetch(`${mockBase}/api/health`)).json()) as { aiMock: boolean }
+        must(health.aiMock === true, "health should report mock mode")
+        must(mock.ai.calls.length === before, `mock mode reached the provider ${mock.ai.calls.length - before} time(s)`)
+      } finally {
+        await ctx.close().catch(() => undefined)
+        mockServer.kill()
+        currentPage = page
+      }
+    })
     await step("no console errors or uncaught exceptions during the whole run", async () => {
       must(consoleErrors.length === 0, consoleErrors.slice(0, 5).join(" | "))
     })

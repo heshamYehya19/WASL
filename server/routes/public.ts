@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { checkProviderHealth, configuredProvider, configuredProviders, lastCallOutcome } from "../ai/provider.ts"
+import { AI_MOCK_BLOCKED_MESSAGE, aiMockOn, aiMockState, checkProviderHealth, configuredProvider, configuredProviders, lastCallOutcome, MOCK_MODEL, MOCK_PROVIDER } from "../ai/provider.ts"
 import { resetDatabase } from "../db.ts"
 import { ApiError, text } from "../http.ts"
 import { all, exec, newId, nowIso, one } from "../sql.ts"
@@ -24,6 +24,15 @@ export const publicRoutes: Route[] = [
     pattern: /^\/health$/,
     open: true,
     handler: async () => {
+      // Demo mock mode: report it, and never probe a provider (that would spend quota).
+      const mock = aiMockState()
+      if (mock !== "off") {
+        return {
+          ai: { configured: mock === "on", provider: mock === "on" ? MOCK_PROVIDER : null, backup: null, model: mock === "on" ? MOCK_MODEL : null, keyWorks: mock === "on", message: mock === "on" ? "Demo mock AI: scripted answers, no provider is contacted." : AI_MOCK_BLOCKED_MESSAGE, lastCall: lastCallOutcome() },
+          demoMode: isDemoMode(),
+          aiMock: mock === "on",
+        }
+      }
       const provider = configuredProvider()
       const health = provider ? await checkProviderHealth(provider) : { ok: false, message: "No GROQ_API_KEY or GEMINI_API_KEY is configured. Challenge generation falls back to a labelled template; review, interview and assessment are unavailable." }
       return {
@@ -37,6 +46,7 @@ export const publicRoutes: Route[] = [
           lastCall: lastCallOutcome(),
         },
         demoMode: isDemoMode(),
+        aiMock: false,
       }
     },
   },
@@ -47,13 +57,13 @@ export const publicRoutes: Route[] = [
     handler: ({ db, actor }) => {
       if (actor.role === "student") {
         const c = one(db, "SELECT id, name, is_demo_fixture FROM candidates WHERE id = ?", actor.id)!
-        return { actor: { role: "student", id: actor.id, name: String(c.name) }, demoMode: isDemoMode() }
+        return { actor: { role: "student", id: actor.id, name: String(c.name) }, demoMode: isDemoMode(), aiMock: aiMockOn() }
       }
       if (actor.role === "company") {
         const c = one(db, "SELECT id, name FROM companies WHERE id = ?", actor.id)!
-        return { actor: { role: "company", id: actor.id, name: String(c.name) }, demoMode: isDemoMode() }
+        return { actor: { role: "company", id: actor.id, name: String(c.name) }, demoMode: isDemoMode(), aiMock: aiMockOn() }
       }
-      return { actor: null, demoMode: isDemoMode() }
+      return { actor: null, demoMode: isDemoMode(), aiMock: aiMockOn() }
     },
   },
   {

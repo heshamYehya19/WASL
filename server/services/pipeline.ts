@@ -9,7 +9,7 @@
 import type { DatabaseSync } from "node:sqlite"
 import { assessSubmission, ASSESS_PROMPT_VERSION } from "../ai/assessor.ts"
 import { nextInterviewTurn } from "../ai/interviewer.ts"
-import { AiError, aiConfigured, describeAiError, waitPhrase } from "../ai/provider.ts"
+import { AiError, aiConfigured, describeAiError, MOCK_PROVIDER, waitPhrase } from "../ai/provider.ts"
 import { REVIEW_PROMPT_VERSION, reviewSubmission } from "../ai/reviewer.ts"
 import type { ReviewResult } from "../ai/reviewer.ts"
 import { detectInjection } from "../ai/safety.ts"
@@ -357,10 +357,11 @@ async function assessmentStep(db: DatabaseSync, ctx: Ctx): Promise<void> {
       db,
       `INSERT INTO assessments (id, submission_id, correctness, correctness_evidence, code_quality, code_quality_evidence, understanding, understanding_evidence,
          outcome, outcome_reason, summary, strengths, weaknesses, origin, provider, model, prompt_version, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ai', ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       assessmentId, ctx.submission.id, result.correctness.rating, dimension(result.correctness), result.codeQuality.rating, dimension(result.codeQuality),
       result.understanding.rating, dimension(result.understanding), decision.kind, decision.reason, result.summary, JSON.stringify(result.strengths),
-      JSON.stringify(result.weaknesses), result.provider, result.model, ASSESS_PROMPT_VERSION, nowIso(),
+      // A demo-mock assessment is scripted, not a real AI judgement: it is stored as demonstration data and labelled as such.
+      JSON.stringify(result.weaknesses), result.provider === MOCK_PROVIDER ? "demo_fixture" : "ai", result.provider, result.model, ASSESS_PROMPT_VERSION, nowIso(),
     )
     exec(db, "UPDATE submissions SET stage = 'assessed', pipeline_error = '' WHERE id = ?", ctx.submission.id)
     applyEvent(db, ctx.runPhase.id, decision.kind === "passed" ? "assessed_passed" : "assessed_failed")

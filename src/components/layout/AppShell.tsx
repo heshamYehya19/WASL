@@ -157,7 +157,7 @@ function Notifications({ role }: { role: Role }) {
 }
 
 export function AppShell({ role }: { role: Role }) {
-  const { actor, ready } = useSession()
+  const { actor, ready, aiMock } = useSession()
   const { pathname } = useLocation()
   // The menu is open "at" a path, so navigating anywhere closes it without an effect.
   const [menuAt, setMenuAt] = useState<string | null>(null)
@@ -227,6 +227,11 @@ export function AppShell({ role }: { role: Role }) {
             </nav>
           )}
         </header>
+        {aiMock && (
+          <div role="note" data-testid="ai-mock-banner" className="border-b border-dashed border-amber-400/60 bg-amber-100 px-4 py-2 text-center text-xs font-semibold text-ink-900 sm:px-6 lg:px-8">
+            Demo mock AI — rehearsal mode. No AI provider is used: every review, interview question and assessment here is scripted demonstration data, not a genuine AI assessment.
+          </div>
+        )}
         <main id="main" tabIndex={-1} className="flex-1 px-4 py-6 outline-none sm:px-6 lg:px-8">
           <div key={pathname} className="animate-page-enter">
             <Suspense fallback={<RouteFallback />}>
