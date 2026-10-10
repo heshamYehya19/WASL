@@ -84,7 +84,7 @@ function Footer() {
           <div className="max-w-sm">
             <Wordmark />
             <p className="mt-3 text-sm leading-relaxed text-ink-600">
-              WASL connects students and graduates directly with companies. Real challenges, an AI that inspects the work and interviews the person behind it, and employers who see evidence — not claims.
+              Qudra connects students and graduates directly with companies. Real challenges, an AI that inspects the work and interviews the person behind it, and employers who see evidence — not claims.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-8 sm:grid-cols-2">
@@ -92,7 +92,7 @@ function Footer() {
               <div className="mb-2 text-xs font-semibold tracking-wide text-ink-500 uppercase">Platform</div>
               <ul className="space-y-1.5 text-sm text-ink-600">
                 <li><Link to="/how-it-works" className="hover:text-teal-700">How it works</Link></li>
-                <li><Link to="/about" className="hover:text-teal-700">About WASL</Link></li>
+                <li><Link to="/about" className="hover:text-teal-700">About Qudra</Link></li>
                 <li><Link to="/login" className="hover:text-teal-700">Sign in</Link></li>
               </ul>
             </div>

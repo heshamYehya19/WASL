@@ -2,7 +2,8 @@ import { Link } from "react-router-dom"
 
 export function Wordmark({ to = "/", dark = false }: { to?: string; dark?: boolean }) {
   return (
-    <Link to={to} className="group flex items-center gap-2 shrink-0" aria-label="WASL — home">
+    <Link to={to} className="group flex items-center gap-2 shrink-0" aria-label="Qudra — home">
+      {/* The Qudra mark: a "Q" on an indigo tile, a teal spark of potential, and (on hover) a violet line rising inside it. */}
       <svg
         width="28"
         height="28"
@@ -10,19 +11,19 @@ export function Wordmark({ to = "/", dark = false }: { to?: string; dark?: boole
         aria-hidden="true"
         className="shrink-0 transition-transform duration-300 ease-out group-hover:rotate-[8deg] group-hover:scale-110"
       >
-        <rect width="32" height="32" rx="8" fill="#0B1D26" />
-        <path d="M9 10 L23 22" stroke="#5EEAD4" strokeWidth="2.2" strokeLinecap="round" className="wordmark-connector" />
-        <circle cx="9" cy="10" r="3.2" fill="#2DD4BF" className="wordmark-node" />
-        <circle cx="23" cy="22" r="3.2" fill="#2DD4BF" className="wordmark-node wordmark-node-delay" />
-        <circle cx="23" cy="10" r="2" fill="#F2C879" className="wordmark-spark" />
+        <rect width="32" height="32" rx="8" fill="#4338CA" />
+        <circle cx="15" cy="15" r="7.5" fill="none" stroke="#EEF2FF" strokeWidth="2.6" className="wordmark-node" />
+        <path d="M19.8 19.8 L24.5 24.5" stroke="#EEF2FF" strokeWidth="2.6" strokeLinecap="round" className="wordmark-node wordmark-node-delay" />
+        <path d="M11.5 17.5 L14 15 L15.8 16.6 L18.5 12.5" fill="none" stroke="#C4B5FD" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="wordmark-connector" />
+        <circle cx="25" cy="7" r="2" fill="#2DD4BF" className="wordmark-spark" />
       </svg>
       <span
         className={`text-lg font-extrabold tracking-tight transition-all duration-300 ease-out group-hover:tracking-wider ${dark ? "text-white" : "text-ink-950"}`}
       >
-        WASL
+        Qudra
       </span>
       <span lang="ar" className={`wordmark-ink font-arabic text-lg font-bold ${dark ? "text-teal-300" : "text-teal-600"}`}>
-        وصل
+        قدرة
       </span>
     </Link>
   )

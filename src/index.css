@@ -30,13 +30,15 @@
      intentionally the SAME in both themes, never inverted. */
   --color-night: #0a1620;
 
-  /* Brand teal (وصل / connection) — redefined under .dark below */
-  --color-teal-700: #0f766e;
-  --color-teal-600: #0d9488;
-  --color-teal-500: #14b8a6;
-  --color-teal-400: #2dd4bf;
-  --color-teal-300: #5eead4;
-  --color-teal-100: #ccfbf1;
+  /* Brand scale (Qudra | قدرة: indigo primary #4338CA, violet secondary) — redefined under .dark below.
+     The token names are kept from the original theme so every existing utility class picks up the new brand. */
+  --color-teal-700: #3730a3;
+  --color-teal-600: #4338ca;
+  --color-teal-500: #818cf8;
+  --color-teal-400: #a78bfa;
+  --color-teal-300: #a5b4fc;
+  --color-teal-100: #e0e7ff;
+  --color-teal-50: #eef2ff;
 
   /* Amber accent (pending / human review) — redefined under .dark below */
   --color-amber-600: #b45309;
@@ -75,10 +77,11 @@
 
   --color-surface: #101c29;
 
-  --color-teal-50: #0c2b28;
-  --color-teal-100: #103b35;
-  --color-teal-700: #5eead4;
-  --color-teal-600: #2dd4bf;
+  --color-teal-50: #131236;
+  --color-teal-100: #1e1b4b;
+  --color-teal-700: #a5b4fc;
+  --color-teal-600: #818cf8;
+  --color-teal-500: #6366f1;
 
   --color-amber-100: #3a2a10;
   --color-amber-600: #f2c879;
@@ -148,8 +151,8 @@ body {
 
 .bg-grid {
   background-image:
-    linear-gradient(to right, rgba(20, 184, 166, 0.06) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(20, 184, 166, 0.06) 1px, transparent 1px);
+    linear-gradient(to right, rgba(67, 56, 202, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(67, 56, 202, 0.06) 1px, transparent 1px);
   background-size: 40px 40px;
 }
 
@@ -163,9 +166,9 @@ body {
   animation: dash-flow 1.4s linear infinite;
 }
 
-/* Wordmark hover: the connector traces itself in, nodes light up, and the
+/* Wordmark hover: a rising line traces itself in, the "Q" lights up, and the
    Arabic mark sharpens from a faint "draft" into solid "ink" — a small nod to
-   what وصل (connection) actually means. */
+   what قدرة (ability) actually means. */
 .wordmark-connector {
   stroke-dasharray: 19;
   stroke-dashoffset: 19;
@@ -186,7 +189,7 @@ body {
 }
 .group:hover .wordmark-node {
   transform: scale(1.2);
-  filter: drop-shadow(0 0 3px rgba(45, 212, 191, 0.85));
+  filter: drop-shadow(0 0 3px rgba(167, 139, 250, 0.85));
 }
 
 .wordmark-spark {

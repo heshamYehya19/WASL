@@ -21,7 +21,7 @@ function Row({ active, onClick, name, sub, round, demo }: { active: boolean; onC
       className={`group flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left text-sm transition-colors ${active ? "bg-teal-100/60" : "hover:bg-ink-50"}`}
     >
       <span
-        className={`flex h-7 w-7 shrink-0 items-center justify-center text-[10px] font-bold ${round ? "rounded-full" : "rounded-lg"} ${active ? "bg-gradient-to-br from-teal-400 to-teal-600 text-ink-950" : "bg-ink-100 text-ink-600"}`}
+        className={`flex h-7 w-7 shrink-0 items-center justify-center text-[10px] font-bold ${round ? "rounded-full" : "rounded-lg"} ${active ? "bg-gradient-to-br from-teal-400 to-teal-600 text-white" : "bg-ink-100 text-ink-600"}`}
       >
         {initials(name)}
       </span>
@@ -77,7 +77,7 @@ export function AccountMenu() {
         aria-haspopup="menu"
         className="group flex max-w-[44vw] items-center gap-2 rounded-full border border-ink-200 bg-surface py-1 pr-3 pl-1 text-sm font-medium text-ink-700 transition-all duration-200 hover:border-teal-400 sm:max-w-[60vw]"
       >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-teal-600 text-[10px] font-bold text-ink-950">{initials(actor.name)}</span>
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-teal-600 text-[10px] font-bold text-white">{initials(actor.name)}</span>
         <span className="truncate">{actor.name}</span>
         <span className={`text-ink-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} aria-hidden="true">▾</span>
       </button>
@@ -88,7 +88,7 @@ export function AccountMenu() {
             {demoMode && (
               <>
                 <div className="border-b border-ink-100 p-3">
-                  <p className="mb-2 px-1 text-xs text-ink-500">Demo sign-in: switch accounts to see WASL from each side. This is not real authentication.</p>
+                  <p className="mb-2 px-1 text-xs text-ink-500">Demo sign-in: switch accounts to see Qudra from each side. This is not real authentication.</p>
                   <label htmlFor="account-search" className="sr-only">Search accounts</label>
                   <input
                     id="account-search"

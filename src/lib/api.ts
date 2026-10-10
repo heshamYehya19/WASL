@@ -30,7 +30,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
   } catch {
-    throw new ApiRequestError("Can't reach the WASL server. Is it running?")
+    throw new ApiRequestError("Can't reach the Qudra server. Is it running?")
   }
   const data = await res.json().catch(() => null)
   if (!res.ok) throw new ApiRequestError(data?.error ?? `Request failed (${res.status}).`, res.status, typeof data?.field === "string" ? data.field : undefined, data?.detail)
@@ -50,7 +50,7 @@ export async function download(path: string, fallbackName: string) {
   try {
     res = await fetch(`/api${path}`, { headers: actorHeader ? { "X-WASL-Actor": actorHeader } : {} })
   } catch {
-    throw new ApiRequestError("Can't reach the WASL server. Is it running?")
+    throw new ApiRequestError("Can't reach the Qudra server. Is it running?")
   }
   if (!res.ok) {
     const data = await res.json().catch(() => null)

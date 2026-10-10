@@ -29,10 +29,10 @@ const CURSOR_PULL_DIST = 70
 
 export function ConstellationField({
   className = "",
-  particleColor = "rgba(94, 234, 212, 0.8)",
-  lineColor = "rgba(94, 234, 212, 0.16)",
-  cursorLineColor = "rgba(94, 234, 212, 0.5)",
-  cursorGlowColor = "rgba(94, 234, 212, 0.9)",
+  particleColor = "rgba(165, 180, 252, 0.8)",
+  lineColor = "rgba(165, 180, 252, 0.16)",
+  cursorLineColor = "rgba(165, 180, 252, 0.5)",
+  cursorGlowColor = "rgba(165, 180, 252, 0.9)",
   density = 11000,
   mode = "container",
   minParticles = 18,
@@ -152,7 +152,7 @@ export function ConstellationField({
         ctx!.globalAlpha = 1
         const glow = ctx!.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, 9)
         glow.addColorStop(0, cursorGlowColor)
-        glow.addColorStop(1, "rgba(94, 234, 212, 0)")
+        glow.addColorStop(1, "rgba(165, 180, 252, 0)")
         ctx!.fillStyle = glow
         ctx!.beginPath()
         ctx!.arc(pointer.x, pointer.y, 9, 0, Math.PI * 2)

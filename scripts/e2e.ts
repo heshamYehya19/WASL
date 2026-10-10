@@ -175,13 +175,16 @@ async function main() {
     page.on("pageerror", (e) => consoleErrors.push(e.stack ?? String(e)))
 
     console.log("\nPublic site")
-    await step("landing page shows the WASL brand and no university", async () => {
+    await step("landing page shows the Qudra | قدرة brand and no university", async () => {
       await page.goto(base)
       await page.getByRole("heading", { level: 1 }).waitFor()
       const text = (await page.locator("body").innerText()).toLowerCase()
       must(text.includes("where ability meets opportunity"), "tagline missing")
       must(!text.includes("universit"), "the landing page should not mention universities")
-      must(text.includes("وصل"), "Arabic mark missing")
+      must(text.includes("qudra"), "English brand name missing")
+      must(text.includes("قدرة"), "Arabic mark missing")
+      must(!text.includes("wasl") && !text.includes("وصل"), "the old brand name is still shown")
+      must((await page.title()).startsWith("Qudra | قدرة"), `unexpected browser title: ${await page.title()}`)
       await page.screenshot({ path: join(SHOTS, "landing.png") })
     })
     for (const path of ["/", "/how-it-works", "/for-students", "/for-companies", "/about", "/login"]) {
@@ -457,7 +460,17 @@ async function main() {
       await page.getByText("Open the evidence").first().click()
       await page.getByText("Understanding interview").first().waitFor()
       await page.getByText(/read, never run/).first().waitFor()
+      // The actual submitted solution is shown, read-only: no answer box, no retry, no way to submit.
+      await page.getByText("def route_ticket(ticket):").first().waitFor()
+      must((await page.locator("#interview-answer").count()) === 0, "a company must not be able to answer the interview")
+      must((await page.getByRole("button", { name: /Try again|Continue processing|Submit for review|Send answer/ }).count()) === 0, "a company must not get candidate actions")
       await page.screenshot({ path: join(SHOTS, "company-participant.png"), fullPage: true })
+      // Another company, given the same address, gets nothing.
+      const participantUrl = page.url()
+      await signInAs(page, base, "Orbit Analytics")
+      await page.goto(participantUrl)
+      await page.getByText("We couldn't load this.").waitFor()
+      must((await page.getByText("def route_ticket(ticket):").count()) === 0, "another company must not see the solution")
     })
     await step("one student cannot open another's work by its address", async () => {
       await signInAs(page, base, "Omar Saleh")

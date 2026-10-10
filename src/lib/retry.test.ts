@@ -38,7 +38,7 @@ describe("postRetry", () => {
   it("rejects clearly when the server can't be reached", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("Failed to fetch"))))
     const err = await postRetry("sub-1").catch((e: unknown) => e)
-    expect(feedbackForError(err)).toMatch(/Can't reach the WASL server.*still saved, and nothing has been decided/)
+    expect(feedbackForError(err)).toMatch(/Can't reach the Qudra server.*still saved, and nothing has been decided/)
   })
 })
 

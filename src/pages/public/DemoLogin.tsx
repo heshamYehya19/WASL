@@ -74,7 +74,7 @@ export default function DemoLogin() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
-      <PageHeader eyebrow="Demo sign-in" title="Choose who to be" subtitle="See WASL from either side. There are no passwords here — this is an account switcher for exploring the prototype, not real authentication." />
+      <PageHeader eyebrow="Demo sign-in" title="Choose who to be" subtitle="See Qudra from either side. There are no passwords here — this is an account switcher for exploring the prototype, not real authentication." />
       <div className="mb-6 space-y-3">
         <AiStatus />
         {actor && (

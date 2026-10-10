@@ -123,7 +123,7 @@ export async function prepareFile(kind: UploadKind, rawName: string, data: Buffe
         break // an image has no text to read — it is kept for the reviewer to look at
       case ".doc":
         text = legacyDocText(data)
-        if (text) unreadable = "WASL could only partly read this older Word format — save it as .docx or .pdf for a full check."
+        if (text) unreadable = "Qudra could only partly read this older Word format — save it as .docx or .pdf for a full check."
         break
       case ".xlsx":
         table = xlsxTable(data)
@@ -136,11 +136,11 @@ export async function prepareFile(kind: UploadKind, rawName: string, data: Buffe
         text = decodeText(data)
     }
   } catch {
-    unreadable = "WASL couldn't open this file to check it — it may be damaged or password-protected."
+    unreadable = "Qudra couldn't open this file to check it — it may be damaged or password-protected."
   }
   if (table) text = table.map((r) => r.join("\t")).join("\n")
   if (!unreadable && kind !== "image" && text.replace(/\s/g, "").length < 20) {
-    unreadable = "WASL couldn't find readable text in this file (it may be a scanned image), so it couldn't check it for personal data."
+    unreadable = "Qudra couldn't find readable text in this file (it may be a scanned image), so it couldn't check it for personal data."
   }
   return { kind, name, mime: format.mime, data, text, unreadable, table }
 }
@@ -325,7 +325,7 @@ const LABELS: Record<ScreeningKind, string> = {
   card: "Payment card numbers",
   iban: "Bank account numbers (IBAN)",
   personName: "Personal names",
-  unreadable: "Files WASL couldn't fully check",
+  unreadable: "Files Qudra couldn't fully check",
 }
 
 interface Detector {
@@ -545,6 +545,6 @@ export function screenChallenge({ fields, files }: ScreeningInput): ScreeningFin
 /** "3 phone numbers, 1 email address" — for history notes. */
 export function summarizeFindings(findings: { kind: ScreeningKind; label: string; count: number }[]): string {
   return findings
-    .map((f) => (f.kind === "unreadable" ? `${f.count} file${f.count === 1 ? "" : "s"} WASL couldn't fully check` : `${f.count} × ${f.label.toLowerCase()}`))
+    .map((f) => (f.kind === "unreadable" ? `${f.count} file${f.count === 1 ? "" : "s"} Qudra couldn't fully check` : `${f.count} × ${f.label.toLowerCase()}`))
     .join(", ")
 }

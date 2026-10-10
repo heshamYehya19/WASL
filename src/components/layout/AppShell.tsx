@@ -179,7 +179,7 @@ export function AppShell({ role }: { role: Role }) {
         <div className="relative mt-6 overflow-hidden rounded-2xl bg-night px-3 py-3">
           <div className="bg-grid pointer-events-none absolute inset-0 opacity-60" />
           <div className="relative flex items-center gap-3">
-            <span className={`flex h-10 w-10 shrink-0 items-center justify-center bg-gradient-to-br from-teal-400 to-teal-600 text-xs font-bold text-ink-950 ${role === "student" ? "rounded-full" : "rounded-xl"}`}>
+            <span className={`flex h-10 w-10 shrink-0 items-center justify-center bg-gradient-to-br from-teal-400 to-teal-600 text-xs font-bold text-white ${role === "student" ? "rounded-full" : "rounded-xl"}`}>
               {actor.name.split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}
             </span>
             <div className="min-w-0">

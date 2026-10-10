@@ -192,7 +192,7 @@ export default function ManageChallenge() {
                       )}
                       {c.status === "reviewed" && (
                         <>
-                          <p>Reviewed. Publishing makes it visible to every student and graduate on WASL, and freezes this version: candidates always work on the version they started.</p>
+                          <p>Reviewed. Publishing makes it visible to every student and graduate on Qudra, and freezes this version: candidates always work on the version they started.</p>
                           {!publishing ? (
                             <div className="flex flex-wrap gap-2">
                               <Button onClick={() => setPublishing(true)}>Publish…</Button>

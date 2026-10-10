@@ -2,7 +2,7 @@ import { Link } from "react-router-dom"
 import { PageHeader } from "../../components/ui/PageHeader"
 
 const POINTS = [
-  ["Five fields in, a challenge out", "Describe the problem, the skills, the difficulty, the deliverables and a realistic time. WASL drafts a phased challenge with acceptance criteria, rubrics and a workload that adds up to your time."],
+  ["Five fields in, a challenge out", "Describe the problem, the skills, the difficulty, the deliverables and a realistic time. Qudra drafts a phased challenge with acceptance criteria, rubrics and a workload that adds up to your time."],
   ["You review before anyone sees it", "Read it, edit any part, and mark it reviewed. Each edit is a new version; the original draft is kept. Publishing needs an explicit confirmation of how submissions may be used."],
   ["Evaluation use is explicit", "Submissions are used to evaluate candidates' abilities. Publishing a challenge does not transfer ownership of anything a candidate writes, and candidates are told so before they start."],
   ["See the work, and the reasoning", "For candidates who shared their work with you: submissions, the review, the interview transcript with what each question was grounded in, and the three separate ratings with their evidence."],
