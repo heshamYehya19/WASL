@@ -7,7 +7,7 @@ export default function NotFound() {
       <h1 className="mt-2 text-2xl font-bold text-ink-950">That page isn't here</h1>
       <p className="mt-1 max-w-sm text-ink-600">The link may be old, or the thing it pointed to may have been removed.</p>
       <Link to="/" className="mt-6 rounded-full bg-night px-6 py-3 text-sm font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-teal-600">
-        Back to WASL
+        Back to Qudra
       </Link>
     </div>
   )

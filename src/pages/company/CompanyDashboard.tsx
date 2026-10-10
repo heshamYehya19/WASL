@@ -42,7 +42,7 @@ export default function CompanyDashboard() {
         <Card className="lg:col-span-2">
           <CardHeader title="Your challenges" action={<Link to="/company/challenges" className="text-sm font-semibold text-teal-700 hover:underline">All</Link>} />
           {list.length === 0 ? (
-            <div className="p-5"><EmptyState title="No challenges yet" description="Describe a problem in five fields and WASL will draft a phased challenge for you to review." action={<LinkButton to="/company/challenges/new">Create a challenge</LinkButton>} /></div>
+            <div className="p-5"><EmptyState title="No challenges yet" description="Describe a problem in five fields and Qudra will draft a phased challenge for you to review." action={<LinkButton to="/company/challenges/new">Create a challenge</LinkButton>} /></div>
           ) : (
             <ul className="divide-y divide-ink-100">
               {list.slice(0, 6).map((c) => (

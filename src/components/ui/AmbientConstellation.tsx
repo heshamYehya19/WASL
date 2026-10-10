@@ -10,10 +10,10 @@ export function AmbientConstellation() {
     <ConstellationField
       mode="viewport"
       className="pointer-events-none fixed inset-0 -z-10"
-      particleColor="rgba(13, 148, 136, 0.4)"
-      lineColor="rgba(13, 148, 136, 0.09)"
-      cursorLineColor="rgba(15, 118, 110, 0.32)"
-      cursorGlowColor="rgba(20, 184, 166, 0.4)"
+      particleColor="rgba(67, 56, 202, 0.4)"
+      lineColor="rgba(67, 56, 202, 0.09)"
+      cursorLineColor="rgba(55, 48, 163, 0.32)"
+      cursorGlowColor="rgba(124, 58, 237, 0.4)"
       density={30000}
       minParticles={22}
       maxParticles={55}

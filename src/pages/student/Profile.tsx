@@ -47,7 +47,7 @@ function InfoForm({ profile, onSaved }: { profile: OwnProfile; onSaved: () => vo
 
   return (
     <Card>
-      <CardHeader title="About you" subtitle="Everything here is self-reported. WASL doesn't verify any of it, and employers see it labelled that way." />
+      <CardHeader title="About you" subtitle="Everything here is self-reported. Qudra doesn't verify any of it, and employers see it labelled that way." />
       <form onSubmit={save} className="space-y-4 px-5 py-4" noValidate>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Name" htmlFor="p-name" error={errors.name}><input id="p-name" className={inputClass} value={form.name} onChange={(e) => set("name", e.target.value)} maxLength={80} aria-invalid={!!errors.name} /></Field>

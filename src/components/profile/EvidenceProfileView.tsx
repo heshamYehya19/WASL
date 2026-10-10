@@ -8,7 +8,7 @@ import type { EvidenceProfile, SkillEvidence } from "../../types"
 const GROUPS: { status: SkillEvidence["status"]; title: string; selfOnly?: boolean; help: string }[] = [
   { status: "demonstrated", title: "Demonstrated", help: "A Proof Engine assessment of the candidate's own submission and interview passed for a phase that exercises this skill." },
   { status: "building", title: "Building", selfOnly: true, help: "Work in progress — attempts that haven't passed yet. Only you see this." },
-  { status: "declared", title: "Declared", help: "Self-reported and not yet demonstrated on WASL." },
+  { status: "declared", title: "Declared", help: "Self-reported and not yet demonstrated on Qudra." },
 ]
 
 /** Declared and demonstrated skills side by side, each with the evidence behind it. Used for the candidate and for employers. */

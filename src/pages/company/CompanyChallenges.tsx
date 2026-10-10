@@ -30,7 +30,7 @@ export default function CompanyChallenges() {
       <Async state={state}>
         {() =>
           all.length === 0 ? (
-            <EmptyState title="No challenges yet" description="Describe a real problem in five fields. WASL drafts the phases, criteria and rubrics; you review before publishing." action={<LinkButton to="/company/challenges/new">Create a challenge</LinkButton>} />
+            <EmptyState title="No challenges yet" description="Describe a real problem in five fields. Qudra drafts the phases, criteria and rubrics; you review before publishing." action={<LinkButton to="/company/challenges/new">Create a challenge</LinkButton>} />
           ) : (
             <>
               <div className="mb-5">

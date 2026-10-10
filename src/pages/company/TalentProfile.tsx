@@ -43,7 +43,7 @@ export default function TalentProfile() {
             <p className="mt-1 text-ink-700">{c.headline || (c.status === "graduate" ? "Graduate" : "Student")}</p>
             <p className="mt-1 text-sm text-ink-500">{[c.location, c.education, c.availabilityLabel].filter(Boolean).join(" · ")}</p>
             {c.bio && <p className="mt-3 max-w-3xl leading-relaxed text-ink-700">{c.bio}</p>}
-            <p className="mt-2 text-xs text-ink-500">Education, bio and links are self-reported and not verified by WASL.</p>
+            <p className="mt-2 text-xs text-ink-500">Education, bio and links are self-reported and not verified by Qudra.</p>
             {(c.links.length > 0 || c.cvAvailable) && (
               <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
                 {c.links.map((l) => <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-teal-700 hover:underline">{l.label}<span className="sr-only"> (opens in a new tab)</span></a>)}

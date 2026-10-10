@@ -3,17 +3,17 @@ import { PageHeader } from "../../components/ui/PageHeader"
 export default function About() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
-      <PageHeader eyebrow="About" title="WASL | وصل" subtitle="Where Ability Meets Opportunity." />
+      <PageHeader eyebrow="About" title="Qudra | قدرة" subtitle="Where Ability Meets Opportunity." />
       <div className="space-y-5 leading-relaxed text-ink-700">
         <p>
-          <em lang="ar">وصل</em> means “connection”. WASL exists to connect two people who usually struggle to find each other: someone who can do the work but has little to show
+          <em lang="ar">قدرة</em> means “ability”. Qudra exists to connect two people who usually struggle to find each other: someone who can do the work but has little to show
           for it, and a company that needs the work done but can't tell who can do it.
         </p>
         <p>
           It does that without intermediaries. Companies publish challenges; students and graduates take them on — or practise on their own; an AI Proof Engine reviews what they
           submit and interviews them about it; employers search by what was actually demonstrated.
         </p>
-        <h2 className="pt-2 text-lg font-bold text-ink-950">What WASL is not</h2>
+        <h2 className="pt-2 text-lg font-bold text-ink-950">What Qudra is not</h2>
         <ul className="list-disc space-y-1.5 pl-6">
           <li>It is not a degree verifier and has no role for universities.</li>
           <li>It does not run submitted code, and does not claim to prove who wrote it.</li>

@@ -14,7 +14,7 @@ const MODULES = [
   {
     title: "Company Challenges",
     audience: "For companies",
-    text: "Describe a problem in five fields. WASL drafts a multi-phase challenge with acceptance criteria and rubrics; you review, edit and publish it.",
+    text: "Describe a problem in five fields. Qudra drafts a multi-phase challenge with acceptance criteria and rubrics; you review, edit and publish it.",
     to: "/for-companies",
   },
   {
@@ -48,8 +48,8 @@ export default function Landing() {
         <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-24">
           <div className="max-w-3xl">
             <div className="mb-4 flex items-center gap-3">
-              <span className="text-3xl font-extrabold tracking-tight text-white">WASL</span>
-              <span lang="ar" className="font-arabic text-3xl font-bold text-teal-300">وصل</span>
+              <span className="text-3xl font-extrabold tracking-tight text-white">Qudra</span>
+              <span lang="ar" className="font-arabic text-3xl font-bold text-teal-300">قدرة</span>
             </div>
             <h1 className="text-4xl font-bold tracking-tight text-balance text-white sm:text-6xl">
               Where Ability <span className="text-teal-300">Meets Opportunity.</span>

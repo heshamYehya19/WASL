@@ -22,7 +22,8 @@ function Attempt({ challengeId, runId, submissionId }: { challengeId: string; ru
 export default function ParticipantPage() {
   const { id, runId } = useParams()
   const state = useApi<ParticipantData>(`/company/challenges/${id}/participants/${runId}`)
-  const [picked, setPicked] = useState<string | null>(null)
+  // The attempt chosen in each phase (by phase key), so choosing one in a phase doesn't reset the others.
+  const [picked, setPicked] = useState<Record<string, string>>({})
 
   return (
     <Async state={state}>
@@ -44,7 +45,8 @@ export default function ParticipantPage() {
           <div className="mt-6 space-y-4">
             {run.phases.map((p, i) => {
               const attempts = p.attemptList
-              const shown = picked && attempts.some((a) => a.id === picked) ? picked : attempts[0]?.id
+              const choice = picked[p.key]
+              const shown = choice && attempts.some((a) => a.id === choice) ? choice : attempts[0]?.id
               return (
                 <Card key={p.key}>
                   <CardHeader
@@ -71,7 +73,7 @@ export default function ParticipantPage() {
                               <button
                                 key={a.id}
                                 type="button"
-                                onClick={() => setPicked(a.id)}
+                                onClick={() => setPicked((prev) => ({ ...prev, [p.key]: a.id }))}
                                 aria-pressed={a.id === shown}
                                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${a.id === shown ? "border-night bg-night text-white" : "border-ink-200 text-ink-700 hover:border-teal-400"}`}
                               >

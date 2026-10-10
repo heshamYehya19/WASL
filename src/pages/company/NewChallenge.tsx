@@ -45,7 +45,7 @@ export default function NewChallenge() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader eyebrow="Company challenge" title="Describe the problem" subtitle="Five fields. WASL turns them into a phased challenge with objectives, acceptance criteria and rubrics — and you review it before anyone sees it." />
+      <PageHeader eyebrow="Company challenge" title="Describe the problem" subtitle="Five fields. Qudra turns them into a phased challenge with objectives, acceptance criteria and rubrics — and you review it before anyone sees it." />
       <form onSubmit={(e) => void submit(e, true)} noValidate>
         <Card>
           <CardHeader title="Your brief" />

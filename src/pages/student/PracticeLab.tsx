@@ -46,7 +46,7 @@ export default function PracticeLab() {
 
   return (
     <div>
-      <PageHero eyebrow="Student Practice Lab" title="Practise on something built for you" subtitle="Choose the skills and the difficulty. WASL designs a phased challenge, then reviews and interviews you on your work exactly as it would for a company. It's private unless you decide otherwise." />
+      <PageHero eyebrow="Student Practice Lab" title="Practise on something built for you" subtitle="Choose the skills and the difficulty. Qudra designs a phased challenge, then reviews and interviews you on your work exactly as it would for a company. It's private unless you decide otherwise." />
       <div className="grid gap-6 lg:grid-cols-3">
         <form onSubmit={submit} className="space-y-5 lg:col-span-2" noValidate>
           <Card>

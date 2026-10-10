@@ -71,8 +71,9 @@ export function submissionDetail(db: DatabaseSync, ctx: Ctx, opts: { audience: "
     review: review
       ? {
           summary: review.summary,
-          findings: review.findings,
-          criteria: review.criteria.map((c) => ({ ...c, text: criterionText(ctx, c.criterionId) })),
+          // Named fields only, so nothing else stored with a finding can reach the candidate or a company by accident.
+          findings: review.findings.map((f) => ({ id: f.id, severity: f.severity, title: f.title, detail: f.detail, path: f.path, quote: f.quote, line: f.line, anchored: f.anchored })),
+          criteria: review.criteria.map((c) => ({ criterionId: c.criterionId, status: c.status, note: c.note, quote: c.quote, path: c.path, line: c.line, text: criterionText(ctx, c.criterionId) })),
           injectionFlagged: review.injectionFlagged,
           provider: review.provider,
           model: review.model,
